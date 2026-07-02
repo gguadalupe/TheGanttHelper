@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Simple Gantt Planner</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="project-title">
+        <label for="projectName">Project</label>
+        <input id="projectName" type="text" autocomplete="off">
+      </div>
+      <div class="topbar-actions">
+        <button id="addTaskBtn" type="button">+ Task</button>
+        <button id="autoScheduleBtn" type="button">Auto schedule</button>
+        <button id="openDevopsBtn" type="button">DevOps sync</button>
+        <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
+        <button id="exportJsonBtn" type="button">Export JSON</button>
+        <button id="exportCsvBtn" type="button">Export CSV</button>
+        <label class="file-button">
+          Import
+          <input id="importFile" type="file" accept="application/json,.json">
+        </label>
+        <button id="clearBtn" class="danger" type="button">Clear</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="planner">
+        <div class="section-heading">
+          <h1>Task Plan</h1>
+          <p id="projectSummary"></p>
+        </div>
+        <div class="table-wrap">
+          <table class="task-table">
+            <thead>
+              <tr>
+                <th class="task-col">Task</th>
+                <th>Group</th>
+                <th>Type</th>
+                <th>Owner</th>
+                <th>Start</th>
+                <th>Days</th>
+                <th>Finish</th>
+                <th>Depends on</th>
+                <th>Due</th>
+                <th>Status</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="timeline">
+        <div class="section-heading">
+          <h2>Timeline</h2>
+          <p id="timelineSummary"></p>
+        </div>
+        <div id="gantt" class="gantt"></div>
+      </section>
+
+      <aside class="warnings-panel">
+        <div class="section-heading">
+          <h2>Checks</h2>
+          <p id="warningCount"></p>
+        </div>
+        <ul id="warningsList" class="warnings-list"></ul>
+      </aside>
+    </main>
+
+    <dialog id="devopsDialog" class="devops-dialog">
+      <form method="dialog" class="devops-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>Azure DevOps Sync</h2>
+            <p>Fetch work items into an inbox, then choose what belongs in the plan.</p>
+          </div>
+          <button id="closeDevopsBtn" type="button" aria-label="Close DevOps sync">X</button>
+        </div>
+
+        <div class="devops-grid">
+          <label>
+            Organization
+            <input id="devopsOrg" type="text" placeholder="my-org or https://dev.azure.com/my-org" autocomplete="off">
+          </label>
+          <label>
+            Project
+            <input id="devopsProject" type="text" placeholder="Project name" autocomplete="off">
+          </label>
+          <label>
+            Personal access token
+            <input id="devopsToken" type="password" placeholder="Paste for this sync only" autocomplete="off">
+          </label>
+        </div>
+
+        <label class="wiql-field">
+          WIQL
+          <textarea id="devopsWiql" rows="5" spellcheck="false"></textarea>
+        </label>
+
+        <div class="devops-actions">
+          <button id="syncDevopsBtn" type="button">Sync inbox</button>
+          <button id="clearDevopsInboxBtn" type="button">Clear inbox</button>
+          <span id="devopsStatus"></span>
+        </div>
+
+        <div class="devops-inbox">
+          <div class="inbox-heading">
+            <h3>Inbox</h3>
+            <p id="devopsInboxSummary"></p>
+          </div>
+          <div id="devopsInboxList" class="inbox-list"></div>
+        </div>
+      </form>
+    </dialog>
+
+    <template id="emptyStateTemplate">
+      <div class="empty-state">
+        <h2>No tasks yet</h2>
+        <p>Add a task to start building the schedule.</p>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
