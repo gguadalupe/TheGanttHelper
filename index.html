@@ -37,6 +37,7 @@
           <table class="task-table">
             <thead>
               <tr>
+                <th class="id-col">ID</th>
                 <th class="task-col">Task</th>
                 <th>Group</th>
                 <th>Type</th>
@@ -105,6 +106,8 @@
 
         <div class="devops-actions">
           <button id="syncDevopsBtn" type="button">Sync inbox</button>
+          <button id="syncSelectedDevopsBtn" type="button">Sync selected</button>
+          <button id="syncAllDevopsBtn" type="button">Sync all</button>
           <button id="clearDevopsInboxBtn" type="button">Clear inbox</button>
           <span id="devopsStatus"></span>
         </div>
@@ -112,7 +115,23 @@
         <div class="devops-inbox">
           <div class="inbox-heading">
             <h3>Inbox</h3>
-            <p id="devopsInboxSummary"></p>
+            <div class="inbox-heading-tools">
+              <label>
+                Type
+                <select id="devopsTypeFilter"></select>
+              </label>
+              <label>
+                Status
+                <select id="devopsStatusFilter">
+                  <option value="">All statuses</option>
+                  <option value="new">New</option>
+                  <option value="changed">Updated</option>
+                  <option value="imported">Already in plan</option>
+                  <option value="ignored">Ignored</option>
+                </select>
+              </label>
+              <p id="devopsInboxSummary"></p>
+            </div>
           </div>
           <div id="devopsInboxList" class="inbox-list"></div>
         </div>
