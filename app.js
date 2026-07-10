@@ -1,6 +1,9 @@
 const STORAGE_KEY = "simple-gantt-planner-v1";
 const CHECKS_VISIBLE_KEY = "simple-gantt-checks-visible-v1";
 const DEVOPS_TOKEN_KEY = "simple-gantt-devops-token-v1";
+const BOARD_SPLIT_KEY = "simple-gantt-board-split-v1";
+const COLLAPSED_GROUPS_KEY = "simple-gantt-collapsed-groups-v1";
+const COLUMN_SETTINGS_KEY = "simple-gantt-column-settings-v1";
 const DEFAULT_DEVOPS_ORG = "insolut";
 const DEFAULT_DEVOPS_PROJECT = "Insurance Solutions";
 const DEFAULT_WIQL = [
@@ -41,6 +44,22 @@ const typeOptions = [
   ["Code Review Request", "Code Review Request"],
   ["Code Review Response", "Code Review Response"],
   ["Shared Steps", "Shared Steps"]
+];
+
+const taskColumns = [
+  { key: "id", label: "ID", width: 78, min: 54 },
+  { key: "title", label: "Task", width: 300, min: 160 },
+  { key: "group", label: "Group", width: 120, min: 90 },
+  { key: "type", label: "Type", width: 122, min: 100 },
+  { key: "owner", label: "Owner", width: 96, min: 80 },
+  { key: "start", label: "Start", width: 140, min: 110 },
+  { key: "duration", label: "Days", width: 78, min: 64 },
+  { key: "finish", label: "Finish", width: 118, min: 100 },
+  { key: "dependsOn", label: "Depends on", width: 156, min: 110 },
+  { key: "due", label: "Due", width: 140, min: 110 },
+  { key: "status", label: "Status", width: 120, min: 100 },
+  { key: "notes", label: "Notes", width: 148, min: 100 },
+  { key: "actions", label: "Actions", width: 58, min: 48 }
 ];
 
 const sampleTasks = [
@@ -95,6 +114,9 @@ let state = loadState();
 
 const projectNameInput = document.querySelector("#projectName");
 const appShell = document.querySelector(".app-shell");
+const projectBoard = document.querySelector(".project-board");
+const boardResizer = document.querySelector("#boardResizer");
+const openColumnsBtn = document.querySelector("#openColumnsBtn");
 const openDevopsBtn = document.querySelector("#openDevopsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const projectSummary = document.querySelector("#projectSummary");
@@ -104,6 +126,10 @@ const gantt = document.querySelector("#gantt");
 const warningsList = document.querySelector("#warningsList");
 const warningCount = document.querySelector("#warningCount");
 const emptyStateTemplate = document.querySelector("#emptyStateTemplate");
+const columnsDialog = document.querySelector("#columnsDialog");
+const closeColumnsBtn = document.querySelector("#closeColumnsBtn");
+const columnsList = document.querySelector("#columnsList");
+const resetColumnsBtn = document.querySelector("#resetColumnsBtn");
 const devopsDialog = document.querySelector("#devopsDialog");
 const closeDevopsBtn = document.querySelector("#closeDevopsBtn");
 const devopsOrgInput = document.querySelector("#devopsOrg");
@@ -121,6 +147,12 @@ const devopsTypeFilter = document.querySelector("#devopsTypeFilter");
 const devopsStatusFilter = document.querySelector("#devopsStatusFilter");
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
 let draggedTaskId = "";
+let boardResizeActive = false;
+let collapsedGroups = loadCollapsedGroups();
+let columnSettings = loadColumnSettings();
+
+applySavedBoardSplit();
+applyTableColumnSettings();
 
 document.querySelector("#addTaskBtn").addEventListener("click", () => {
   const lastTask = state.tasks[state.tasks.length - 1];
@@ -151,6 +183,72 @@ toggleChecksBtn.addEventListener("click", () => {
   checksVisible = !checksVisible;
   localStorage.setItem(CHECKS_VISIBLE_KEY, String(checksVisible));
   renderChecksToggle();
+});
+
+openColumnsBtn.addEventListener("click", () => {
+  renderColumnsPanel();
+  columnsDialog.showModal();
+});
+
+closeColumnsBtn.addEventListener("click", () => {
+  columnsDialog.close();
+});
+
+resetColumnsBtn.addEventListener("click", () => {
+  columnSettings = getDefaultColumnSettings();
+  saveColumnSettings();
+  renderColumnsPanel();
+  applyTableColumnSettings();
+});
+
+columnsList.addEventListener("change", (event) => {
+  const key = event.target.dataset.columnKey;
+  if (!key || !columnSettings[key]) return;
+
+  if (event.target.dataset.columnField === "visible") {
+    columnSettings[key].visible = event.target.checked;
+  } else if (event.target.dataset.columnField === "width") {
+    const column = taskColumns.find((item) => item.key === key);
+    columnSettings[key].width = Math.max(column.min, Number.parseInt(event.target.value, 10) || column.width);
+  }
+
+  saveColumnSettings();
+  renderColumnsPanel();
+  applyTableColumnSettings();
+});
+
+boardResizer.addEventListener("pointerdown", (event) => {
+  boardResizeActive = true;
+  boardResizer.setPointerCapture(event.pointerId);
+  projectBoard.classList.add("resizing");
+  document.body.classList.add("resizing-board");
+  resizeProjectBoard(event.clientX);
+});
+
+boardResizer.addEventListener("pointermove", (event) => {
+  if (!boardResizeActive) return;
+  resizeProjectBoard(event.clientX);
+});
+
+boardResizer.addEventListener("pointerup", (event) => {
+  finishBoardResize(event.pointerId);
+});
+
+boardResizer.addEventListener("pointercancel", (event) => {
+  finishBoardResize(event.pointerId);
+});
+
+boardResizer.addEventListener("keydown", (event) => {
+  const current = getCurrentBoardSplit();
+  let next = current;
+  if (event.key === "ArrowLeft") next -= 2;
+  if (event.key === "ArrowRight") next += 2;
+  if (event.key === "Home") next = 30;
+  if (event.key === "End") next = 70;
+  if (next === current) return;
+
+  event.preventDefault();
+  setBoardSplit(next);
 });
 
 openDevopsBtn.addEventListener("click", () => {
@@ -289,10 +387,20 @@ taskTableBody.addEventListener("change", (event) => {
     task.dependsOn = "";
   }
 
+  if (field === "dependsOn") {
+    autoSchedule();
+  }
+
   saveAndRender();
 });
 
 taskTableBody.addEventListener("click", (event) => {
+  const groupName = event.target.closest("[data-toggle-group]")?.dataset.toggleGroup;
+  if (groupName) {
+    toggleTaskGroup(groupName);
+    return;
+  }
+
   const id = event.target.dataset.deleteId;
   if (!id) return;
 
@@ -507,6 +615,119 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function getDefaultColumnSettings() {
+  return Object.fromEntries(taskColumns.map((column) => [
+    column.key,
+    { visible: true, width: column.width }
+  ]));
+}
+
+function loadColumnSettings() {
+  const defaults = getDefaultColumnSettings();
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMN_SETTINGS_KEY) || "{}");
+    taskColumns.forEach((column) => {
+      const setting = saved[column.key] || {};
+      defaults[column.key] = {
+        visible: typeof setting.visible === "boolean" ? setting.visible : true,
+        width: Math.max(column.min, Number.parseInt(setting.width, 10) || column.width)
+      };
+    });
+  } catch {
+    localStorage.removeItem(COLUMN_SETTINGS_KEY);
+  }
+  return defaults;
+}
+
+function saveColumnSettings() {
+  localStorage.setItem(COLUMN_SETTINGS_KEY, JSON.stringify(columnSettings));
+}
+
+function renderColumnsPanel() {
+  columnsList.textContent = "";
+
+  taskColumns.forEach((column) => {
+    const setting = columnSettings[column.key];
+    const row = document.createElement("label");
+    row.className = "column-option";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = setting.visible;
+    checkbox.dataset.columnKey = column.key;
+    checkbox.dataset.columnField = "visible";
+
+    const name = document.createElement("span");
+    name.textContent = column.label;
+
+    const width = document.createElement("input");
+    width.type = "number";
+    width.min = String(column.min);
+    width.step = "10";
+    width.value = String(setting.width);
+    width.dataset.columnKey = column.key;
+    width.dataset.columnField = "width";
+
+    row.append(checkbox, name, width);
+    columnsList.append(row);
+  });
+}
+
+function getVisibleColumnCount() {
+  return taskColumns.filter((column) => columnSettings[column.key]?.visible).length || 1;
+}
+
+function applyTableColumnSettings() {
+  if (!taskTableBody) return;
+  const table = taskTableBody.closest("table");
+  if (!table) return;
+
+  let totalWidth = 0;
+  taskColumns.forEach((column) => {
+    const setting = columnSettings[column.key];
+    const visible = setting?.visible !== false;
+    const width = Math.max(column.min, Number.parseInt(setting?.width, 10) || column.width);
+    if (visible) totalWidth += width;
+
+    table.querySelectorAll(`[data-column="${column.key}"]`).forEach((cell) => {
+      cell.hidden = !visible;
+      cell.style.width = visible ? `${width}px` : "";
+      cell.style.minWidth = visible ? `${width}px` : "";
+    });
+  });
+
+  table.style.minWidth = `${Math.max(480, totalWidth)}px`;
+}
+
+function loadCollapsedGroups() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) || "[]");
+    return new Set(Array.isArray(saved) ? saved.map(String) : []);
+  } catch {
+    localStorage.removeItem(COLLAPSED_GROUPS_KEY);
+    return new Set();
+  }
+}
+
+function saveCollapsedGroups() {
+  localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(Array.from(collapsedGroups)));
+}
+
+function isGroupCollapsed(groupName) {
+  return collapsedGroups.has(normalizeGroupName(groupName));
+}
+
+function toggleTaskGroup(groupName) {
+  const normalizedGroup = normalizeGroupName(groupName);
+  if (collapsedGroups.has(normalizedGroup)) {
+    collapsedGroups.delete(normalizedGroup);
+  } else {
+    collapsedGroups.add(normalizedGroup);
+  }
+  saveCollapsedGroups();
+  render();
+}
+
 function render() {
   const analysis = analyzeTasks();
   projectNameInput.value = state.projectName;
@@ -522,6 +743,42 @@ function renderDevopsButton() {
   const counts = getDevopsInboxCounts();
   const activeCount = counts.new + counts.changed;
   openDevopsBtn.textContent = activeCount ? `DevOps sync (${activeCount})` : "DevOps sync";
+}
+
+function applySavedBoardSplit() {
+  const saved = Number.parseFloat(localStorage.getItem(BOARD_SPLIT_KEY));
+  setBoardSplit(Number.isFinite(saved) ? saved : 44, false);
+}
+
+function resizeProjectBoard(clientX) {
+  const rect = projectBoard.getBoundingClientRect();
+  if (!rect.width) return;
+  const percent = ((clientX - rect.left) / rect.width) * 100;
+  setBoardSplit(percent);
+}
+
+function setBoardSplit(percent, persist = true) {
+  const clamped = Math.min(70, Math.max(30, percent));
+  projectBoard.style.setProperty("--task-pane-width", `${clamped}%`);
+  boardResizer.setAttribute("aria-valuemin", "30");
+  boardResizer.setAttribute("aria-valuemax", "70");
+  boardResizer.setAttribute("aria-valuenow", String(Math.round(clamped)));
+  if (persist) localStorage.setItem(BOARD_SPLIT_KEY, String(clamped));
+}
+
+function getCurrentBoardSplit() {
+  const value = Number.parseFloat(projectBoard.style.getPropertyValue("--task-pane-width"));
+  return Number.isFinite(value) ? value : 44;
+}
+
+function finishBoardResize(pointerId) {
+  if (!boardResizeActive) return;
+  boardResizeActive = false;
+  if (boardResizer.hasPointerCapture(pointerId)) {
+    boardResizer.releasePointerCapture(pointerId);
+  }
+  projectBoard.classList.remove("resizing");
+  document.body.classList.remove("resizing-board");
 }
 
 function renderChecksToggle(analysis = analyzeTasks()) {
@@ -549,23 +806,27 @@ function renderTable(analysis) {
   if (!state.tasks.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 13;
+    cell.colSpan = getVisibleColumnCount();
     cell.append(emptyStateTemplate.content.cloneNode(true));
     row.append(cell);
     taskTableBody.append(row);
+    applyTableColumnSettings();
     return;
   }
 
   const warningsByTask = groupWarningsByTask(analysis.warnings);
 
   getTaskGroups().forEach((group) => {
+    const collapsed = isGroupCollapsed(group.name);
     const groupRow = document.createElement("tr");
     groupRow.className = "table-group-row";
     const groupCell = document.createElement("td");
-    groupCell.colSpan = 13;
-    groupCell.textContent = `${group.name} (${group.tasks.length})`;
+    groupCell.colSpan = getVisibleColumnCount();
+    groupCell.append(groupToggleButton(group.name, group.tasks.length, collapsed));
     groupRow.append(groupCell);
     taskTableBody.append(groupRow);
+
+    if (collapsed) return;
 
     group.tasks.forEach((task) => {
       const row = document.createElement("tr");
@@ -578,28 +839,41 @@ function renderTable(analysis) {
       ].filter(Boolean).join(" ");
 
       row.append(
-        inputCell(task, "taskId", "text"),
+        inputCell(task, "taskId", "text", "id"),
         taskNameCell(task),
-        inputCell(task, "group", "text"),
+        inputCell(task, "group", "text", "group"),
         typeCell(task),
-        inputCell(task, "owner", "text"),
-        inputCell(task, "startDate", "date"),
-        inputCell(task, "duration", "number"),
-        readOnlyCell(getFinishDate(task)),
-        inputCell(task, "dependsOn", "text"),
-        inputCell(task, "dueDate", "date"),
+        inputCell(task, "owner", "text", "owner"),
+        inputCell(task, "startDate", "date", "start"),
+        inputCell(task, "duration", "number", "duration"),
+        readOnlyCell(getFinishDate(task), "finish"),
+        inputCell(task, "dependsOn", "text", "dependsOn"),
+        inputCell(task, "dueDate", "date", "due"),
         statusCell(task),
-        inputCell(task, "notes", "text"),
+        inputCell(task, "notes", "text", "notes"),
         deleteCell(task)
       );
 
       taskTableBody.append(row);
     });
   });
+
+  applyTableColumnSettings();
+}
+
+function groupToggleButton(groupName, taskCount, collapsed) {
+  const button = document.createElement("button");
+  button.className = "group-toggle";
+  button.type = "button";
+  button.dataset.toggleGroup = groupName;
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.textContent = `${collapsed ? ">" : "v"} ${groupName} (${taskCount})`;
+  return button;
 }
 
 function taskNameCell(task) {
   const cell = document.createElement("td");
+  cell.dataset.column = "title";
   const wrapper = document.createElement("div");
   wrapper.className = "task-name-cell";
 
@@ -618,8 +892,9 @@ function taskNameCell(task) {
   return cell;
 }
 
-function inputCell(task, field, type) {
+function inputCell(task, field, type, column = field) {
   const cell = document.createElement("td");
+  cell.dataset.column = column;
   cell.append(createTaskInput(task, field, type));
   return cell;
 }
@@ -639,8 +914,9 @@ function createTaskInput(task, field, type) {
   return input;
 }
 
-function readOnlyCell(value) {
+function readOnlyCell(value, column) {
   const cell = document.createElement("td");
+  if (column) cell.dataset.column = column;
   const input = document.createElement("input");
   input.type = "text";
   input.readOnly = true;
@@ -651,6 +927,7 @@ function readOnlyCell(value) {
 
 function typeCell(task) {
   const cell = document.createElement("td");
+  cell.dataset.column = "type";
   const select = document.createElement("select");
   select.dataset.id = task.id;
   select.dataset.field = "type";
@@ -669,6 +946,7 @@ function typeCell(task) {
 
 function statusCell(task) {
   const cell = document.createElement("td");
+  cell.dataset.column = "status";
   const select = document.createElement("select");
   select.dataset.id = task.id;
   select.dataset.field = "status";
@@ -687,6 +965,7 @@ function statusCell(task) {
 
 function deleteCell(task) {
   const cell = document.createElement("td");
+  cell.dataset.column = "actions";
   const button = document.createElement("button");
   button.className = "delete-btn";
   button.type = "button";
@@ -709,7 +988,7 @@ function renderGantt(analysis) {
   const days = enumerateDays(analysis.range.start, analysis.range.end);
   const inner = document.createElement("div");
   inner.className = "gantt-inner";
-  inner.style.width = `${230 + days.length * 34}px`;
+  inner.style.width = `${days.length * 34}px`;
 
   const header = document.createElement("div");
   header.className = "gantt-header";
@@ -732,6 +1011,7 @@ function renderGantt(analysis) {
   const warningTasks = groupWarningsByTask(analysis.warnings);
 
   getTaskGroups().forEach((group) => {
+    const collapsed = isGroupCollapsed(group.name);
     const row = document.createElement("div");
     row.className = "gantt-group-row";
     row.append(labelCell(group.name, `${group.tasks.length}`));
@@ -739,8 +1019,22 @@ function renderGantt(analysis) {
     const track = document.createElement("div");
     track.className = "track group-track";
     track.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
+    const groupRange = getGroupDateRange(group.tasks);
+    if (groupRange) {
+      const startIndex = days.indexOf(groupRange.start);
+      const endIndex = days.indexOf(groupRange.end);
+      if (startIndex >= 0 && endIndex >= 0) {
+        const summary = document.createElement("div");
+        summary.className = "group-summary-bar";
+        summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
+        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)}`;
+        track.append(summary);
+      }
+    }
     row.append(track);
     inner.append(row);
+
+    if (collapsed) return;
 
     group.tasks.forEach((task) => {
       const taskRow = document.createElement("div");
@@ -793,6 +1087,21 @@ function renderGantt(analysis) {
   });
 
   gantt.append(inner);
+}
+
+function getGroupDateRange(tasks) {
+  const ranges = tasks
+    .filter((task) => isIsoDate(task.startDate) && isIsoDate(getFinishDate(task)))
+    .map((task) => ({
+      start: task.startDate,
+      end: getFinishDate(task)
+    }));
+
+  if (!ranges.length) return null;
+  return {
+    start: ranges.map((range) => range.start).sort(compareDates)[0],
+    end: ranges.map((range) => range.end).sort(compareDates).at(-1)
+  };
 }
 
 function renderWarnings(analysis) {

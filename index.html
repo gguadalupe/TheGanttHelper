@@ -15,6 +15,7 @@
       <div class="topbar-actions">
         <button id="addTaskBtn" type="button">+ Task</button>
         <button id="autoScheduleBtn" type="button">Auto schedule</button>
+        <button id="openColumnsBtn" type="button">Columns</button>
         <button id="openDevopsBtn" type="button">DevOps sync</button>
         <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
         <button id="exportJsonBtn" type="button">Export JSON</button>
@@ -31,38 +32,39 @@
       <section class="planner">
         <div class="section-heading">
           <h1>Task Plan</h1>
-          <p id="projectSummary"></p>
+          <div class="heading-summary">
+            <p id="projectSummary"></p>
+            <p id="timelineSummary"></p>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table class="task-table">
-            <thead>
-              <tr>
-                <th class="id-col">ID</th>
-                <th class="task-col">Task</th>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Owner</th>
-                <th>Start</th>
-                <th>Days</th>
-                <th>Finish</th>
-                <th>Depends on</th>
-                <th>Due</th>
-                <th>Status</th>
-                <th>Notes</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="taskTableBody"></tbody>
-          </table>
+        <div class="project-board">
+          <div class="table-wrap">
+            <table class="task-table">
+              <thead>
+                <tr>
+                  <th class="id-col" data-column="id">ID</th>
+                  <th class="task-col" data-column="title">Task</th>
+                  <th data-column="group">Group</th>
+                  <th data-column="type">Type</th>
+                  <th data-column="owner">Owner</th>
+                  <th data-column="start">Start</th>
+                  <th data-column="duration">Days</th>
+                  <th data-column="finish">Finish</th>
+                  <th data-column="dependsOn">Depends on</th>
+                  <th data-column="due">Due</th>
+                  <th data-column="status">Status</th>
+                  <th data-column="notes">Notes</th>
+                  <th data-column="actions"></th>
+                </tr>
+              </thead>
+              <tbody id="taskTableBody"></tbody>
+            </table>
+          </div>
+          <div class="board-resizer" id="boardResizer" role="separator" aria-label="Resize task list and Gantt" aria-orientation="vertical" tabindex="0"></div>
+          <div class="timeline-pane">
+            <div id="gantt" class="gantt"></div>
+          </div>
         </div>
-      </section>
-
-      <section class="timeline">
-        <div class="section-heading">
-          <h2>Timeline</h2>
-          <p id="timelineSummary"></p>
-        </div>
-        <div id="gantt" class="gantt"></div>
       </section>
 
       <aside class="warnings-panel">
@@ -73,6 +75,22 @@
         <ul id="warningsList" class="warnings-list"></ul>
       </aside>
     </main>
+
+    <dialog id="columnsDialog" class="columns-dialog">
+      <form method="dialog" class="columns-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>Columns</h2>
+            <p>Choose visible task columns and widths.</p>
+          </div>
+          <button id="closeColumnsBtn" type="button" aria-label="Close columns">X</button>
+        </div>
+        <div id="columnsList" class="columns-list"></div>
+        <div class="columns-actions">
+          <button id="resetColumnsBtn" type="button">Reset columns</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="devopsDialog" class="devops-dialog">
       <form method="dialog" class="devops-panel">

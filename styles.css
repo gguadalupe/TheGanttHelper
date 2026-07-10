@@ -136,8 +136,7 @@ button.danger {
   display: grid;
   grid-template-columns: minmax(720px, 1fr) 360px;
   grid-template-areas:
-    "planner planner"
-    "timeline checks";
+    "planner checks";
   gap: 12px;
   padding: 12px;
 }
@@ -145,12 +144,10 @@ button.danger {
 .app-shell.checks-hidden {
   grid-template-columns: 1fr;
   grid-template-areas:
-    "planner"
-    "timeline";
+    "planner";
 }
 
 .planner,
-.timeline,
 .warnings-panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -160,11 +157,6 @@ button.danger {
 
 .planner {
   grid-area: planner;
-  min-width: 0;
-}
-
-.timeline {
-  grid-area: timeline;
   min-width: 0;
 }
 
@@ -199,8 +191,59 @@ button.danger {
   text-align: right;
 }
 
+.heading-summary {
+  display: grid;
+  gap: 2px;
+}
+
+.project-board {
+  --task-pane-width: 44%;
+  display: grid;
+  grid-template-columns: minmax(420px, var(--task-pane-width)) 8px minmax(420px, 1fr);
+  align-items: stretch;
+  max-height: calc(100vh - 116px);
+  overflow-y: auto;
+}
+
 .table-wrap {
-  overflow: auto;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.board-resizer {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  width: 8px;
+  min-height: 100%;
+  border-left: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line);
+  background: #eef3f6;
+  cursor: col-resize;
+}
+
+.board-resizer::before {
+  content: "";
+  display: block;
+  width: 2px;
+  height: 34px;
+  margin: 10px auto 0;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.board-resizer:hover,
+.board-resizer:focus-visible,
+.project-board.resizing .board-resizer {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+body.resizing-board {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .task-table {
@@ -229,6 +272,21 @@ button.danger {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+.task-table thead tr,
+.gantt-header {
+  height: 42px;
+}
+
+.task-table tbody tr:not(.table-group-row),
+.gantt-row {
+  height: 42px;
+}
+
+.task-table .table-group-row,
+.gantt-group-row {
+  height: 34px;
 }
 
 .task-table tr.has-warning {
@@ -266,7 +324,25 @@ button.danger {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
-  padding: 5px 6px;
+  padding: 0 6px;
+  height: 34px;
+}
+
+.table-group-row .group-toggle {
+  min-height: 26px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 4px;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.table-group-row .group-toggle:hover,
+.table-group-row .group-toggle:focus-visible {
+  color: var(--accent-dark);
 }
 
 .task-table .id-col {
@@ -274,7 +350,7 @@ button.danger {
 }
 
 .task-table .task-col {
-  width: 180px;
+  width: 300px;
 }
 
 .task-table th:nth-child(3),
@@ -397,8 +473,15 @@ button.danger {
 }
 
 .gantt {
-  overflow: auto;
+  overflow: visible;
   padding: 0 0 12px;
+}
+
+.timeline-pane {
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .gantt-inner {
@@ -428,6 +511,15 @@ button.danger {
   text-transform: uppercase;
 }
 
+.group-summary-bar {
+  align-self: center;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-dark);
+  opacity: 0.72;
+  z-index: 3;
+}
+
 .gantt-label {
   position: sticky;
   left: 0;
@@ -454,6 +546,20 @@ button.danger {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.project-board .gantt-inner {
+  min-width: 0;
+}
+
+.project-board .gantt-header,
+.project-board .gantt-row,
+.project-board .gantt-group-row {
+  grid-template-columns: 1fr;
+}
+
+.project-board .gantt-label {
+  display: none;
 }
 
 .axis,
@@ -611,6 +717,64 @@ button.danger {
   background: rgba(31, 41, 51, 0.34);
 }
 
+.columns-dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 20px 70px rgba(31, 41, 51, 0.22);
+}
+
+.columns-dialog::backdrop {
+  background: rgba(31, 41, 51, 0.34);
+}
+
+.columns-panel {
+  margin: 0;
+  background: var(--panel);
+}
+
+.columns-list {
+  display: grid;
+  gap: 0;
+  padding: 8px 14px;
+}
+
+.column-option {
+  display: grid;
+  grid-template-columns: 24px 1fr 92px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.column-option:last-child {
+  border-bottom: 0;
+}
+
+.column-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.column-option input[type="number"] {
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 0 6px;
+}
+
+.columns-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 14px 12px;
+}
+
 .devops-panel {
   margin: 0;
   padding: 0;
@@ -645,7 +809,8 @@ button.danger {
   font-size: 12px;
 }
 
-#closeDevopsBtn {
+#closeDevopsBtn,
+#closeColumnsBtn {
   width: 30px;
   min-width: 30px;
   min-height: 30px;
@@ -871,8 +1036,17 @@ button.danger {
     grid-template-columns: 1fr;
     grid-template-areas:
       "planner"
-      "checks"
-      "timeline";
+      "checks";
+  }
+
+  .project-board {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .board-resizer {
+    display: none;
   }
 
   .devops-grid,
