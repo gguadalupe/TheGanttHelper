@@ -210,8 +210,10 @@ devopsInboxList.addEventListener("click", (event) => {
 
   if (action === "add") {
     addDevopsItemToPlan(inboxItem, event.target.closest(".inbox-item"));
+    orderTasksByDependencies();
   } else if (action === "update") {
     applyDevopsUpdate(inboxItem);
+    orderTasksByDependencies();
   } else if (action === "ignore") {
     ignoreDevopsItem(inboxItem);
   } else if (action === "unignore") {
@@ -385,7 +387,7 @@ function normalizeState(raw) {
       duration: Math.max(1, Number.parseInt(task.duration || task.durationDays, 10) || 1),
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
       dueDate: isIsoDate(task.dueDate) ? task.dueDate : "",
-      status: statusOptions.some(([value]) => value === task.status) ? task.status : "not-started",
+      status: normalizeTaskStatus(task.status),
       notes: typeof task.notes === "string" ? task.notes : "",
       source: typeof task.source === "string" ? task.source : "",
       externalId: task.externalId ?? "",
@@ -409,6 +411,7 @@ function normalizeState(raw) {
 }
 
 function getRawTaskId(task, index) {
+  if (task.source === "azure-devops" && task.externalId != null && String(task.externalId).trim()) return String(task.externalId).trim();
   if (typeof task.taskId === "string" && task.taskId.trim()) return task.taskId.trim();
   if (task.externalId != null && String(task.externalId).trim()) return String(task.externalId).trim();
   return String(index + 1);
@@ -458,6 +461,41 @@ function getTypeLabel(value) {
 
 function isMilestoneType(value) {
   return normalizeTaskType(value).toLowerCase() === "milestone";
+}
+
+function normalizeTaskStatus(value) {
+  const status = typeof value === "string" ? value.trim() : "";
+  return status || "not-started";
+}
+
+function getStatusOptions(currentStatus = "") {
+  const options = [];
+  const seen = new Set();
+  const addOption = (value, label = value) => {
+    const normalizedValue = normalizeTaskStatus(value);
+    if (seen.has(normalizedValue)) return;
+    seen.add(normalizedValue);
+    options.push([normalizedValue, label || normalizedValue]);
+  };
+
+  statusOptions.forEach(([value, label]) => addOption(value, label));
+  state.tasks.forEach((task) => addOption(task.status, getStatusLabel(task.status)));
+  state.devops.inbox.forEach((item) => addOption(item.state, getStatusLabel(item.state)));
+  addOption(currentStatus, getStatusLabel(currentStatus));
+  return options;
+}
+
+function getStatusLabel(value) {
+  const normalizedStatus = normalizeTaskStatus(value);
+  return statusOptions.find(([optionValue]) => optionValue === normalizedStatus)?.[1] || normalizedStatus;
+}
+
+function isDoneStatus(value) {
+  return ["closed", "done", "resolved", "removed"].includes(normalizeTaskStatus(value).toLowerCase());
+}
+
+function isInProgressStatus(value) {
+  return ["active", "committed", "in progress", "doing", "in-progress"].includes(normalizeTaskStatus(value).toLowerCase());
 }
 
 function saveAndRender() {
@@ -535,7 +573,7 @@ function renderTable(analysis) {
       row.dataset.group = normalizeGroupName(task.group);
       row.className = [
         warningsByTask.has(task.id) ? "has-warning" : "",
-        task.status === "done" ? "done" : "",
+        isDoneStatus(task.status) ? "done" : "",
         isMilestoneType(task.type) ? "milestone-task" : ""
       ].filter(Boolean).join(" ");
 
@@ -635,14 +673,14 @@ function statusCell(task) {
   select.dataset.id = task.id;
   select.dataset.field = "status";
 
-  statusOptions.forEach(([value, label]) => {
+  getStatusOptions(task.status).forEach(([value, label]) => {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
     select.append(option);
   });
 
-  select.value = task.status;
+  select.value = normalizeTaskStatus(task.status);
   cell.append(select);
   return cell;
 }
@@ -727,7 +765,7 @@ function renderGantt(analysis) {
           const milestone = document.createElement("div");
           milestone.className = [
             "milestone",
-            task.status === "done" ? "done" : "",
+            isDoneStatus(task.status) ? "done" : "",
             warningTasks.has(task.id) ? "warning" : ""
           ].filter(Boolean).join(" ");
           milestone.style.gridColumn = `${startIndex + 1}`;
@@ -738,8 +776,8 @@ function renderGantt(analysis) {
           const bar = document.createElement("div");
           bar.className = [
             "bar",
-            task.status === "in-progress" ? "in-progress" : "",
-            task.status === "done" ? "done" : "",
+            isInProgressStatus(task.status) ? "in-progress" : "",
+            isDoneStatus(task.status) ? "done" : "",
             warningTasks.has(task.id) ? "warning" : ""
           ].filter(Boolean).join(" ");
           bar.style.gridColumn = `${startIndex + 1} / span ${finishIndex - startIndex + 1}`;
@@ -828,6 +866,7 @@ function renderDevopsPanel() {
     meta.textContent = [
       item.workItemType,
       item.parentId ? `Parent #${item.parentId}` : "",
+      item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
       item.state,
       item.assignedTo || "Unassigned",
       item.changedDate ? `Changed ${formatDateTime(item.changedDate)}` : ""
@@ -987,6 +1026,7 @@ function syncDevopsInboxItems(mode) {
   });
 
   if (synced) {
+    orderTasksByDependencies();
     saveAndRender();
     renderDevopsPanel();
   }
@@ -1088,6 +1128,7 @@ function mapDevopsWorkItem(workItem, config) {
     tags: fields["System.Tags"] || "",
     changedDate: fields["System.ChangedDate"] || "",
     parentId: getDevopsParentId(workItem),
+    dueDate: getDevopsDueDate(fields),
     url: `${getDevopsProjectUrl(config)}/_workitems/edit/${externalId}`,
     suggestedGroup: getPathLeaf(fields["System.AreaPath"]) || getLastGroupName(),
     suggestedType: getDevopsTaskType(fields["System.WorkItemType"], title)
@@ -1141,8 +1182,8 @@ function addDevopsItemToPlan(item, row) {
     startDate: isIsoDate(startDate) ? startDate : toIsoDate(new Date()),
     duration: isMilestoneType(type) ? 1 : duration,
     dependsOn: item.parentId || "",
-    dueDate: "",
-    status: mapDevopsStateToStatus(item.state),
+    dueDate: item.dueDate || "",
+    status: getDevopsStatus(item.state),
     notes: `Azure DevOps #${item.externalId}`,
     source: "azure-devops",
     externalId: item.externalId,
@@ -1171,7 +1212,8 @@ function applyDevopsUpdate(item) {
   if (isMilestoneType(task.type)) task.duration = 1;
   task.owner = item.assignedTo || "";
   task.dependsOn = item.parentId || "";
-  task.status = mapDevopsStateToStatus(item.state);
+  if (item.dueDate) task.dueDate = item.dueDate;
+  task.status = getDevopsStatus(item.state);
   task.externalUrl = item.url;
   task.externalSignature = item.signature;
   task.externalChangedDate = item.changedDate;
@@ -1284,6 +1326,7 @@ function normalizeDevopsInboxItem(item) {
     tags: typeof item.tags === "string" ? item.tags : "",
     changedDate: typeof item.changedDate === "string" ? item.changedDate : "",
     parentId: item.parentId == null ? "" : String(item.parentId),
+    dueDate: isIsoDate(item.dueDate) ? item.dueDate : "",
     url: typeof item.url === "string" ? item.url : "",
     signature: typeof item.signature === "string" ? item.signature : "",
     status: ["new", "changed", "imported", "ignored"].includes(item.status) ? item.status : "new",
@@ -1361,25 +1404,36 @@ function getDevopsParentId(workItem) {
   return parentRelation.url.split("/").filter(Boolean).at(-1) || "";
 }
 
+function getDevopsDueDate(fields) {
+  const value = fields["Microsoft.VSTS.Scheduling.DueDate"]
+    || fields["Microsoft.VSTS.Scheduling.TargetDate"]
+    || fields["System.DueDate"];
+  if (!value) return "";
+  if (isIsoDate(value)) return value;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return toIsoDate(date);
+}
+
 function getDevopsSignature(item) {
   return JSON.stringify({
     title: item.title,
     workItemType: item.workItemType,
     state: item.state,
+    status: getDevopsStatus(item.state),
     assignedTo: item.assignedTo,
     areaPath: item.areaPath,
     iterationPath: item.iterationPath,
     tags: item.tags,
     changedDate: item.changedDate,
-    parentId: item.parentId
+    parentId: item.parentId,
+    dueDate: item.dueDate
   });
 }
 
-function mapDevopsStateToStatus(value) {
-  const stateName = String(value || "").toLowerCase();
-  if (["closed", "done", "resolved", "removed"].includes(stateName)) return "done";
-  if (["active", "committed", "in progress", "doing"].includes(stateName)) return "in-progress";
-  return "not-started";
+function getDevopsStatus(value) {
+  return normalizeTaskStatus(value);
 }
 
 function getDevopsTaskType(type, title) {
@@ -1443,11 +1497,17 @@ function normalizeGroupName(value) {
 }
 
 function getTaskIdMap() {
-  return new Map(
-    state.tasks
-      .filter((task) => task.taskId.trim())
-      .map((task) => [task.taskId.trim(), task])
-  );
+  const map = new Map();
+  state.tasks.forEach((task) => {
+    const taskId = task.taskId.trim();
+    if (taskId) map.set(taskId, task);
+
+    const externalId = task.externalId == null ? "" : String(task.externalId).trim();
+    if (task.source === "azure-devops" && externalId && !map.has(externalId)) {
+      map.set(externalId, task);
+    }
+  });
+  return map;
 }
 
 function getDuplicateTaskIds() {
@@ -1533,7 +1593,7 @@ function analyzeTasks() {
       });
     }
 
-    if (task.dueDate && compareDates(task.dueDate, today) < 0 && task.status !== "done") {
+    if (task.dueDate && compareDates(task.dueDate, today) < 0 && !isDoneStatus(task.status)) {
       warnings.push({
         taskId: task.id,
         type: "Due",
@@ -1565,10 +1625,7 @@ function analyzeTasks() {
 }
 
 function autoSchedule() {
-  const taskByTaskId = getTaskIdMap();
-  const cycles = findCycleTaskIds(taskByTaskId);
-  const ordered = getDependencyOrderedTasks(taskByTaskId, cycles);
-  state.tasks = ordered;
+  const { taskByTaskId, cycles, ordered } = orderTasksByDependencies();
 
   ordered.forEach((task) => {
     if (!task.dependsOn || cycles.has(task.id)) return;
@@ -1579,6 +1636,14 @@ function autoSchedule() {
       task.startDate = earliest;
     }
   });
+}
+
+function orderTasksByDependencies() {
+  const taskByTaskId = getTaskIdMap();
+  const cycles = findCycleTaskIds(taskByTaskId);
+  const ordered = getDependencyOrderedTasks(taskByTaskId, cycles);
+  state.tasks = ordered;
+  return { taskByTaskId, cycles, ordered };
 }
 
 function getDependencyOrderedTasks(taskByTaskId, cycles) {
@@ -1753,7 +1818,7 @@ function toCsv() {
       getFinishDate(task),
       task.dependsOn,
       task.dueDate,
-      statusOptions.find(([value]) => value === task.status)?.[1] || task.status,
+      getStatusLabel(task.status),
       task.notes,
       task.source,
       task.externalId,
