@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Simple Gantt Planner</title>
+    <title>Gantt Planner</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -17,6 +17,7 @@
         <button id="autoScheduleBtn" type="button">Auto schedule</button>
         <button id="openColumnsBtn" type="button">Columns</button>
         <button id="openDevopsBtn" type="button">DevOps sync</button>
+        <button id="openDevopsOptionsBtn" type="button">Sync options</button>
         <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
         <button id="exportJsonBtn" type="button">Export JSON</button>
         <button id="exportCsvBtn" type="button">Export CSV</button>
@@ -73,6 +74,20 @@
           <p id="warningCount"></p>
         </div>
         <ul id="warningsList" class="warnings-list"></ul>
+        <div class="capacity-panel">
+          <div class="capacity-heading">
+            <div>
+              <h3>Capacity</h3>
+              <p>Demand is counted as scheduled task-days per owner.</p>
+            </div>
+            <label>
+              Default/day
+              <input id="defaultCapacityInput" type="number" min="0" step="0.25">
+            </label>
+          </div>
+          <div id="ownerCapacityList" class="owner-capacity-list"></div>
+          <div id="capacityHeatmap" class="capacity-heatmap"></div>
+        </div>
       </aside>
     </main>
 
@@ -110,6 +125,10 @@
           <label>
             Project
             <input id="devopsProject" type="text" placeholder="Project name" autocomplete="off">
+          </label>
+          <label>
+            Project start
+            <input id="devopsProjectStart" type="date">
           </label>
           <label>
             Personal access token

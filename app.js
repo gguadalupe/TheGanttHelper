@@ -4,6 +4,7 @@ const DEVOPS_TOKEN_KEY = "simple-gantt-devops-token-v1";
 const BOARD_SPLIT_KEY = "simple-gantt-board-split-v1";
 const COLLAPSED_GROUPS_KEY = "simple-gantt-collapsed-groups-v1";
 const COLUMN_SETTINGS_KEY = "simple-gantt-column-settings-v1";
+const DEVOPS_COLLAPSED_GROUPS_KEY = "simple-gantt-devops-collapsed-groups-v1";
 const DEFAULT_DEVOPS_ORG = "insolut";
 const DEFAULT_DEVOPS_PROJECT = "Insurance Solutions";
 const DEFAULT_WIQL = [
@@ -118,6 +119,7 @@ const projectBoard = document.querySelector(".project-board");
 const boardResizer = document.querySelector("#boardResizer");
 const openColumnsBtn = document.querySelector("#openColumnsBtn");
 const openDevopsBtn = document.querySelector("#openDevopsBtn");
+const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const projectSummary = document.querySelector("#projectSummary");
 const timelineSummary = document.querySelector("#timelineSummary");
@@ -125,6 +127,9 @@ const taskTableBody = document.querySelector("#taskTableBody");
 const gantt = document.querySelector("#gantt");
 const warningsList = document.querySelector("#warningsList");
 const warningCount = document.querySelector("#warningCount");
+const defaultCapacityInput = document.querySelector("#defaultCapacityInput");
+const ownerCapacityList = document.querySelector("#ownerCapacityList");
+const capacityHeatmap = document.querySelector("#capacityHeatmap");
 const emptyStateTemplate = document.querySelector("#emptyStateTemplate");
 const columnsDialog = document.querySelector("#columnsDialog");
 const closeColumnsBtn = document.querySelector("#closeColumnsBtn");
@@ -134,6 +139,7 @@ const devopsDialog = document.querySelector("#devopsDialog");
 const closeDevopsBtn = document.querySelector("#closeDevopsBtn");
 const devopsOrgInput = document.querySelector("#devopsOrg");
 const devopsProjectInput = document.querySelector("#devopsProject");
+const devopsProjectStartInput = document.querySelector("#devopsProjectStart");
 const devopsTokenInput = document.querySelector("#devopsToken");
 const devopsWiqlInput = document.querySelector("#devopsWiql");
 const syncDevopsBtn = document.querySelector("#syncDevopsBtn");
@@ -147,9 +153,11 @@ const devopsTypeFilter = document.querySelector("#devopsTypeFilter");
 const devopsStatusFilter = document.querySelector("#devopsStatusFilter");
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
 let draggedTaskId = "";
+let draggedGroupName = "";
 let boardResizeActive = false;
 let collapsedGroups = loadCollapsedGroups();
 let columnSettings = loadColumnSettings();
+let collapsedDevopsGroups = loadCollapsedDevopsGroups();
 
 applySavedBoardSplit();
 applyTableColumnSettings();
@@ -251,7 +259,11 @@ boardResizer.addEventListener("keydown", (event) => {
   setBoardSplit(next);
 });
 
-openDevopsBtn.addEventListener("click", () => {
+openDevopsBtn.addEventListener("click", async () => {
+  await syncDevopsInbox("saved");
+});
+
+openDevopsOptionsBtn.addEventListener("click", () => {
   renderDevopsPanel();
   devopsDialog.showModal();
 });
@@ -265,8 +277,16 @@ devopsTokenInput.addEventListener("change", () => {
   if (token) localStorage.setItem(DEVOPS_TOKEN_KEY, token);
 });
 
+devopsProjectStartInput.addEventListener("change", () => {
+  state.devops.config.projectStartDate = isIsoDate(devopsProjectStartInput.value)
+    ? devopsProjectStartInput.value
+    : toIsoDate(new Date());
+  saveState();
+  renderDevopsPanel();
+});
+
 syncDevopsBtn.addEventListener("click", async () => {
-  await syncDevopsInbox();
+  await syncDevopsInbox("form");
 });
 
 syncSelectedDevopsBtn.addEventListener("click", () => {
@@ -299,6 +319,18 @@ devopsStatusFilter.addEventListener("change", () => {
 });
 
 devopsInboxList.addEventListener("click", (event) => {
+  const groupToggle = event.target.closest("[data-inbox-group-toggle]");
+  if (groupToggle) {
+    toggleDevopsInboxGroup(groupToggle.dataset.inboxGroupToggle);
+    return;
+  }
+
+  const selectGroup = event.target.closest("[data-inbox-select-group]");
+  if (selectGroup) {
+    selectDevopsInboxGroup(selectGroup);
+    return;
+  }
+
   const action = event.target.dataset.action;
   const externalId = event.target.dataset.externalId;
   if (!action || !externalId) return;
@@ -332,7 +364,7 @@ document.querySelector("#exportCsvBtn").addEventListener("click", () => {
 
 document.querySelector("#clearBtn").addEventListener("click", () => {
   if (!confirm("Clear this project and start over?")) return;
-  state = { projectName: "Untitled Project", tasks: [], devops: defaultDevopsState() };
+  state = { projectName: "Untitled Project", tasks: [], devops: defaultDevopsState(), capacity: defaultCapacityState() };
   saveAndRender();
 });
 
@@ -366,6 +398,7 @@ taskTableBody.addEventListener("change", (event) => {
   if (!task) return;
 
   const previousTaskId = task.taskId;
+  const previousGroup = normalizeGroupName(task.group);
   if (field === "duration") {
     task.duration = Math.max(1, Number.parseInt(event.target.value, 10) || 1);
   } else if (field === "type") {
@@ -373,6 +406,8 @@ taskTableBody.addEventListener("change", (event) => {
     if (isMilestoneType(task.type)) task.duration = 1;
   } else if (field === "taskId" || field === "dependsOn") {
     task[field] = event.target.value.trim();
+  } else if (field === "group") {
+    moveTaskToGroup(task, event.target.value, previousGroup);
   } else {
     task[field] = event.target.value;
   }
@@ -416,17 +451,28 @@ taskTableBody.addEventListener("click", (event) => {
 });
 
 taskTableBody.addEventListener("dragstart", (event) => {
+  const groupHandle = event.target.closest("[data-drag-group-name]");
+  if (groupHandle) {
+    draggedGroupName = groupHandle.dataset.dragGroupName;
+    draggedTaskId = "";
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggedGroupName);
+    groupHandle.closest("tr")?.classList.add("dragging");
+    return;
+  }
+
   const handle = event.target.closest("[data-drag-task-id]");
   if (!handle) return;
 
   draggedTaskId = handle.dataset.dragTaskId;
+  draggedGroupName = "";
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("text/plain", draggedTaskId);
   handle.closest("tr")?.classList.add("dragging");
 });
 
 taskTableBody.addEventListener("dragover", (event) => {
-  const targetRow = getDragTargetRow(event);
+  const targetRow = draggedGroupName ? getGroupDragTargetRow(event) : getDragTargetRow(event);
   if (!targetRow) return;
 
   event.preventDefault();
@@ -442,20 +488,36 @@ taskTableBody.addEventListener("dragleave", (event) => {
 });
 
 taskTableBody.addEventListener("drop", (event) => {
-  const targetRow = getDragTargetRow(event);
+  const targetRow = draggedGroupName ? getGroupDragTargetRow(event) : getDragTargetRow(event);
   if (!targetRow) return;
 
   event.preventDefault();
-  const moved = reorderTaskWithinGroup(draggedTaskId, targetRow.dataset.taskId, getDropPosition(event, targetRow));
+  const moved = draggedGroupName
+    ? reorderGroup(draggedGroupName, targetRow.dataset.groupName, getDropPosition(event, targetRow))
+    : reorderTaskWithinGroup(draggedTaskId, targetRow.dataset.taskId, getDropPosition(event, targetRow));
   draggedTaskId = "";
+  draggedGroupName = "";
   clearDropIndicators();
   if (moved) saveAndRender();
 });
 
 taskTableBody.addEventListener("dragend", () => {
   draggedTaskId = "";
+  draggedGroupName = "";
   clearDropIndicators();
   taskTableBody.querySelectorAll(".dragging").forEach((row) => row.classList.remove("dragging"));
+});
+
+defaultCapacityInput.addEventListener("change", () => {
+  state.capacity.defaultDaily = normalizeCapacityValue(defaultCapacityInput.value, 1);
+  saveAndRender();
+});
+
+ownerCapacityList.addEventListener("change", (event) => {
+  const owner = event.target.dataset.capacityOwner;
+  if (!owner) return;
+  state.capacity.owners[owner] = normalizeCapacityValue(event.target.value, state.capacity.defaultDaily);
+  saveAndRender();
 });
 
 render();
@@ -471,7 +533,8 @@ function loadState() {
   return {
     projectName: "My Project Plan",
     tasks: sampleTasks,
-    devops: defaultDevopsState()
+    devops: defaultDevopsState(),
+    capacity: defaultCapacityState()
   };
 }
 
@@ -514,7 +577,8 @@ function normalizeState(raw) {
   return {
     projectName: typeof raw.projectName === "string" && raw.projectName.trim() ? raw.projectName.trim() : "Untitled Project",
     tasks,
-    devops: normalizeDevopsState(raw.devops)
+    devops: normalizeDevopsState(raw.devops),
+    capacity: normalizeCapacityState(raw.capacity)
   };
 }
 
@@ -713,6 +777,20 @@ function saveCollapsedGroups() {
   localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(Array.from(collapsedGroups)));
 }
 
+function loadCollapsedDevopsGroups() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEVOPS_COLLAPSED_GROUPS_KEY) || "[]");
+    return new Set(Array.isArray(saved) ? saved.map(String) : []);
+  } catch {
+    localStorage.removeItem(DEVOPS_COLLAPSED_GROUPS_KEY);
+    return new Set();
+  }
+}
+
+function saveCollapsedDevopsGroups() {
+  localStorage.setItem(DEVOPS_COLLAPSED_GROUPS_KEY, JSON.stringify(Array.from(collapsedDevopsGroups)));
+}
+
 function isGroupCollapsed(groupName) {
   return collapsedGroups.has(normalizeGroupName(groupName));
 }
@@ -737,6 +815,7 @@ function render() {
   renderTable(analysis);
   renderGantt(analysis);
   renderWarnings(analysis);
+  renderCapacity(analysis);
 }
 
 function renderDevopsButton() {
@@ -820,9 +899,10 @@ function renderTable(analysis) {
     const collapsed = isGroupCollapsed(group.name);
     const groupRow = document.createElement("tr");
     groupRow.className = "table-group-row";
+    groupRow.dataset.groupName = group.name;
     const groupCell = document.createElement("td");
     groupCell.colSpan = getVisibleColumnCount();
-    groupCell.append(groupToggleButton(group.name, group.tasks.length, collapsed));
+    groupCell.append(groupHeaderContent(group.name, group.tasks.length, collapsed));
     groupRow.append(groupCell);
     taskTableBody.append(groupRow);
 
@@ -840,7 +920,7 @@ function renderTable(analysis) {
 
       row.append(
         inputCell(task, "taskId", "text", "id"),
-        taskNameCell(task),
+        taskNameCell(task, warningsByTask.get(task.id) || []),
         inputCell(task, "group", "text", "group"),
         typeCell(task),
         inputCell(task, "owner", "text", "owner"),
@@ -861,17 +941,36 @@ function renderTable(analysis) {
   applyTableColumnSettings();
 }
 
+function groupHeaderContent(groupName, taskCount, collapsed) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "group-header-cell";
+  wrapper.append(groupDragHandle(groupName), groupToggleButton(groupName, taskCount, collapsed));
+  return wrapper;
+}
+
+function groupDragHandle(groupName) {
+  const handle = document.createElement("button");
+  handle.className = "group-drag-handle";
+  handle.type = "button";
+  handle.draggable = true;
+  handle.dataset.dragGroupName = groupName;
+  handle.title = "Drag to reorder this group";
+  handle.setAttribute("aria-label", `Reorder group ${groupName}`);
+  handle.textContent = "::";
+  return handle;
+}
+
 function groupToggleButton(groupName, taskCount, collapsed) {
   const button = document.createElement("button");
   button.className = "group-toggle";
   button.type = "button";
   button.dataset.toggleGroup = groupName;
   button.setAttribute("aria-expanded", String(!collapsed));
-  button.textContent = `${collapsed ? ">" : "v"} ${groupName} (${taskCount})`;
+  button.textContent = `${collapsed ? "+  |  " : "-  |  "} ${groupName} (${taskCount})`;
   return button;
 }
 
-function taskNameCell(task) {
+function taskNameCell(task, warnings = []) {
   const cell = document.createElement("td");
   cell.dataset.column = "title";
   const wrapper = document.createElement("div");
@@ -887,9 +986,22 @@ function taskNameCell(task) {
   handle.textContent = "::";
 
   const input = createTaskInput(task, "name", "text");
-  wrapper.append(handle, input);
+  wrapper.append(handle);
+  if (warnings.length) wrapper.append(taskWarningButton(task, warnings));
+  wrapper.append(input);
   cell.append(wrapper);
   return cell;
+}
+
+function taskWarningButton(task, warnings) {
+  const button = document.createElement("button");
+  button.className = "task-warning-indicator";
+  button.type = "button";
+  const messages = warnings.map((warning) => `${warning.type}: ${warning.message}`).join("\n");
+  button.title = messages;
+  button.setAttribute("aria-label", `${task.name || "Task"} warnings: ${messages}`);
+  button.textContent = "!";
+  return button;
 }
 
 function inputCell(task, field, type, column = field) {
@@ -998,9 +1110,18 @@ function renderGantt(analysis) {
   axis.className = "axis";
   axis.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
 
-  days.forEach((day) => {
+  getMonthSpans(days).forEach((month) => {
+    const cell = document.createElement("div");
+    cell.className = "month-cell";
+    cell.style.gridColumn = `${month.startIndex + 1} / span ${month.dayCount}`;
+    cell.textContent = month.label;
+    axis.append(cell);
+  });
+
+  days.forEach((day, index) => {
     const cell = document.createElement("div");
     cell.className = dayCellClass(day, "axis-cell");
+    cell.style.gridColumn = `${index + 1}`;
     cell.innerHTML = `<strong>${day.slice(8, 10)}</strong><br>${weekdayLabel(day)}`;
     axis.append(cell);
   });
@@ -1045,9 +1166,10 @@ function renderGantt(analysis) {
       taskTrack.className = "track";
       taskTrack.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
 
-      days.forEach((day) => {
+      days.forEach((day, index) => {
         const cell = document.createElement("div");
         cell.className = dayCellClass(day, "day-cell");
+        cell.style.gridColumn = `${index + 1}`;
         taskTrack.append(cell);
       });
 
@@ -1089,6 +1211,26 @@ function renderGantt(analysis) {
   gantt.append(inner);
 }
 
+function getMonthSpans(days) {
+  const months = [];
+  days.forEach((day, index) => {
+    const monthKey = day.slice(0, 7);
+    const current = months.at(-1);
+    if (current?.key === monthKey) {
+      current.dayCount += 1;
+      return;
+    }
+
+    months.push({
+      key: monthKey,
+      startIndex: index,
+      dayCount: 1,
+      label: formatMonthLabel(day)
+    });
+  });
+  return months;
+}
+
 function getGroupDateRange(tasks) {
   const ranges = tasks
     .filter((task) => isIsoDate(task.startDate) && isIsoDate(getFinishDate(task)))
@@ -1127,10 +1269,96 @@ function renderWarnings(analysis) {
   });
 }
 
+function renderCapacity(analysis) {
+  defaultCapacityInput.value = formatCapacityValue(state.capacity.defaultDaily);
+  ownerCapacityList.textContent = "";
+  capacityHeatmap.textContent = "";
+
+  const owners = getCapacityOwners();
+  if (!owners.length) {
+    const empty = document.createElement("p");
+    empty.className = "capacity-empty";
+    empty.textContent = "Add owners to tasks to see capacity.";
+    ownerCapacityList.append(empty);
+    return;
+  }
+
+  owners.forEach((owner) => {
+    const row = document.createElement("label");
+    row.className = "owner-capacity-row";
+    row.textContent = owner;
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "0.25";
+    input.dataset.capacityOwner = owner;
+    input.value = formatCapacityValue(getOwnerCapacity(owner));
+
+    row.append(input);
+    ownerCapacityList.append(row);
+  });
+
+  if (!analysis.capacity.days.length) {
+    const empty = document.createElement("p");
+    empty.className = "capacity-empty";
+    empty.textContent = "No scheduled demand yet.";
+    capacityHeatmap.append(empty);
+    return;
+  }
+
+  capacityHeatmap.style.setProperty("--capacity-day-count", analysis.capacity.days.length);
+  capacityHeatmap.append(capacityHeaderRow(analysis.capacity.days));
+
+  analysis.capacity.owners.forEach((owner) => {
+    const row = document.createElement("div");
+    row.className = "capacity-row";
+
+    const label = document.createElement("div");
+    label.className = "capacity-owner";
+    label.textContent = owner;
+    row.append(label);
+
+    analysis.capacity.days.forEach((day) => {
+      const load = analysis.capacity.loads.get(owner)?.get(day) || 0;
+      const capacity = getOwnerCapacity(owner);
+      const ratio = capacity > 0 ? load / capacity : (load > 0 ? Number.POSITIVE_INFINITY : 0);
+      const cell = document.createElement("div");
+      cell.className = `capacity-cell ${getCapacityLevel(ratio)}`;
+      cell.textContent = load ? (Number.isFinite(ratio) ? `${Math.round(ratio * 100)}%` : "Over") : "";
+      cell.title = `${owner} on ${formatShortDate(day)}: ${formatCapacityValue(load)} demand / ${formatCapacityValue(capacity)} capacity`;
+      row.append(cell);
+    });
+
+    capacityHeatmap.append(row);
+  });
+}
+
+function capacityHeaderRow(days) {
+  const row = document.createElement("div");
+  row.className = "capacity-row capacity-date-row";
+
+  const spacer = document.createElement("div");
+  spacer.className = "capacity-owner";
+  spacer.textContent = "Owner";
+  row.append(spacer);
+
+  days.forEach((day) => {
+    const cell = document.createElement("div");
+    cell.className = "capacity-date";
+    cell.textContent = day.slice(5).replace("-", "/");
+    cell.title = formatShortDate(day);
+    row.append(cell);
+  });
+
+  return row;
+}
+
 function renderDevopsPanel() {
   const devops = state.devops;
   devopsOrgInput.value = devops.config.org || DEFAULT_DEVOPS_ORG;
   devopsProjectInput.value = devops.config.project || DEFAULT_DEVOPS_PROJECT;
+  devopsProjectStartInput.value = devops.config.projectStartDate || toIsoDate(new Date());
   devopsTokenInput.value = localStorage.getItem(DEVOPS_TOKEN_KEY) || "";
   devopsWiqlInput.value = devops.config.wiql || DEFAULT_WIQL;
   renderDevopsFilters();
@@ -1156,67 +1384,185 @@ function renderDevopsPanel() {
     return;
   }
 
-  visibleItems.forEach((item) => {
-    const row = document.createElement("article");
-    row.className = `inbox-item ${item.status}`;
-    row.dataset.externalId = item.externalId;
-
-    const main = document.createElement("div");
-    main.className = "inbox-main";
-
-    if (isActionableDevopsItem(item)) {
-      main.append(inboxSelection(item));
-    }
-
-    const title = document.createElement("h4");
-    title.textContent = `#${item.externalId} ${item.title}`;
-
-    const meta = document.createElement("p");
-    meta.textContent = [
-      item.workItemType,
-      item.parentId ? `Parent #${item.parentId}` : "",
-      item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
-      item.state,
-      item.assignedTo || "Unassigned",
-      item.changedDate ? `Changed ${formatDateTime(item.changedDate)}` : ""
-    ].filter(Boolean).join(" | ");
-
-    const paths = document.createElement("p");
-    paths.className = "inbox-paths";
-    paths.textContent = [item.areaPath, item.iterationPath, item.tags].filter(Boolean).join(" | ");
-
-    main.append(title, meta);
-    if (paths.textContent) main.append(paths);
-
-    const controls = document.createElement("div");
-    controls.className = "inbox-controls";
-
-    if (item.status === "new") {
-      controls.append(
-        inboxInput("Group", "group", item.suggestedGroup || getLastGroupName()),
-        inboxSelect("Type", "type", getTypeOptions(item.suggestedType), item.suggestedType || "task"),
-        inboxInput("Start", "startDate", toIsoDate(new Date()), "date"),
-        inboxInput("Days", "duration", "1", "number"),
-        inboxAction("Add to plan", "add", item.externalId, "primary"),
-        inboxAction("Ignore", "ignore", item.externalId)
-      );
-    } else if (item.status === "changed") {
-      controls.append(
-        inboxAction("Apply update", "update", item.externalId, "primary"),
-        inboxAction("Ignore", "ignore", item.externalId)
-      );
-    } else if (item.status === "ignored") {
-      controls.append(inboxAction("Unignore", "unignore", item.externalId));
-    } else {
-      const imported = document.createElement("span");
-      imported.className = "inbox-badge";
-      imported.textContent = "Already in plan";
-      controls.append(imported);
-    }
-
-    row.append(main, controls);
-    devopsInboxList.append(row);
+  getGroupedDevopsInboxItems(visibleItems).forEach((statusGroup) => {
+    devopsInboxList.append(renderDevopsStatusGroup(statusGroup));
   });
+}
+
+function renderDevopsStatusGroup(group) {
+  const section = document.createElement("section");
+  section.className = `inbox-group ${group.status}`;
+  section.dataset.inboxGroup = group.key;
+
+  section.append(inboxGroupHeader({
+    key: group.key,
+    title: group.label,
+    detail: `${group.items.length} item${group.items.length === 1 ? "" : "s"}`,
+    actionableCount: isDevopsInboxGroupCollapsed(group.key) ? 0 : group.actionableCount,
+    level: "status"
+  }));
+
+  if (isDevopsInboxGroupCollapsed(group.key)) return section;
+
+  group.items.forEach((item) => {
+    section.append(renderDevopsInboxItem(item));
+  });
+
+  return section;
+}
+
+function renderDevopsInboxItem(item) {
+  const row = document.createElement("article");
+  row.className = `inbox-item ${item.status}`;
+  row.dataset.externalId = item.externalId;
+
+  const main = document.createElement("div");
+  main.className = "inbox-main";
+
+  if (isActionableDevopsItem(item)) {
+    main.append(inboxSelection(item));
+  }
+
+  const title = document.createElement("h4");
+  title.textContent = `#${item.externalId} ${item.title}`;
+
+  const meta = document.createElement("p");
+  meta.textContent = [
+    item.workItemType,
+    item.parentId ? `Parent #${item.parentId}${item.parentTitle ? ` ${item.parentTitle}` : ""}` : "",
+    item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
+    item.state,
+    item.assignedTo || "Unassigned",
+    item.changedDate ? `Changed ${formatDateTime(item.changedDate)}` : ""
+  ].filter(Boolean).join(" | ");
+
+  const paths = document.createElement("p");
+  paths.className = "inbox-paths";
+  paths.textContent = [item.areaPath, item.iterationPath, item.tags].filter(Boolean).join(" | ");
+
+  main.append(title, meta);
+  if (paths.textContent) main.append(paths);
+
+  const controls = document.createElement("div");
+  controls.className = "inbox-controls";
+
+  if (item.status === "new") {
+    controls.append(
+      inboxInput("Group", "group", item.suggestedGroup || getLastGroupName()),
+      inboxSelect("Type", "type", getTypeOptions(item.suggestedType), item.suggestedType || "task"),
+      inboxInput("Start", "startDate", getDevopsProjectStartDate(), "date"),
+      inboxInput("Days", "duration", "1", "number"),
+      inboxAction("Add to plan", "add", item.externalId, "primary"),
+      inboxAction("Ignore", "ignore", item.externalId)
+    );
+  } else if (item.status === "changed") {
+    controls.append(
+      inboxAction("Apply update", "update", item.externalId, "primary"),
+      inboxAction("Ignore", "ignore", item.externalId)
+    );
+  } else if (item.status === "ignored") {
+    controls.append(inboxAction("Unignore", "unignore", item.externalId));
+  } else {
+    const imported = document.createElement("span");
+    imported.className = "inbox-badge";
+    imported.textContent = "Already in plan";
+    controls.append(imported);
+  }
+
+  row.append(main, controls);
+  return row;
+}
+
+function getDevopsProjectStartDate() {
+  return isIsoDate(state.devops.config.projectStartDate)
+    ? state.devops.config.projectStartDate
+    : toIsoDate(new Date());
+}
+
+function inboxGroupHeader({ key, title, detail, actionableCount, level }) {
+  const header = document.createElement("div");
+  header.className = `inbox-group-header ${level}`;
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "inbox-group-toggle";
+  toggle.dataset.inboxGroupToggle = key;
+  toggle.setAttribute("aria-expanded", String(!isDevopsInboxGroupCollapsed(key)));
+  toggle.textContent = `${isDevopsInboxGroupCollapsed(key) ? ">" : "v"} ${title}`;
+
+  const count = document.createElement("span");
+  count.textContent = detail;
+
+  const actions = document.createElement("div");
+  actions.className = "inbox-group-actions";
+
+  if (actionableCount) {
+    const selectAll = document.createElement("button");
+    selectAll.type = "button";
+    selectAll.dataset.inboxSelectGroup = key;
+    selectAll.textContent = `Select all (${actionableCount})`;
+    actions.append(selectAll);
+  }
+
+  header.append(toggle, count, actions);
+  return header;
+}
+
+function getGroupedDevopsInboxItems(items) {
+  const statusOrder = ["new", "changed", "imported", "ignored"];
+  const statusLabels = {
+    new: "New items",
+    changed: "Updates",
+    imported: "Already in plan",
+    ignored: "Ignored"
+  };
+
+  return statusOrder
+    .map((status) => {
+      const statusItems = items.filter((item) => item.status === status);
+      if (!statusItems.length) return null;
+
+      return {
+        key: `status:${status}`,
+        status,
+        label: statusLabels[status] || getStatusLabel(status),
+        items: statusItems.slice().sort(compareDevopsInboxItems),
+        actionableCount: statusItems.filter(isActionableDevopsItem).length
+      };
+    })
+    .filter(Boolean);
+}
+
+function compareDevopsInboxItems(a, b) {
+  const changed = String(b.changedDate || "").localeCompare(String(a.changedDate || ""));
+  if (changed) return changed;
+  const aId = Number(a.externalId);
+  const bId = Number(b.externalId);
+  if (Number.isFinite(aId) && Number.isFinite(bId)) return aId - bId;
+  return String(a.externalId).localeCompare(String(b.externalId));
+}
+
+function toggleDevopsInboxGroup(key) {
+  if (!key) return;
+  if (collapsedDevopsGroups.has(key)) {
+    collapsedDevopsGroups.delete(key);
+  } else {
+    collapsedDevopsGroups.add(key);
+  }
+  saveCollapsedDevopsGroups();
+  renderDevopsPanel();
+}
+
+function selectDevopsInboxGroup(button) {
+  const group = button.closest("[data-inbox-group]");
+  if (!group) return;
+  group.querySelectorAll("[data-inbox-select-id]").forEach((checkbox) => {
+    checkbox.checked = true;
+  });
+}
+
+function isDevopsInboxGroupCollapsed(key) {
+  return collapsedDevopsGroups.has(key);
 }
 
 function inboxSelection(item) {
@@ -1347,16 +1693,16 @@ function isActionableDevopsItem(item) {
   return item.status === "new" || item.status === "changed";
 }
 
-async function syncDevopsInbox() {
-  const config = {
-    org: devopsOrgInput.value.trim(),
-    project: devopsProjectInput.value.trim(),
-    wiql: devopsWiqlInput.value.trim() || DEFAULT_WIQL
-  };
-  const token = devopsTokenInput.value.trim();
+async function syncDevopsInbox(source = "form") {
+  const config = source === "saved" ? getSavedDevopsConfig() : getDevopsFormConfig();
+  const token = source === "saved" ? localStorage.getItem(DEVOPS_TOKEN_KEY) || "" : devopsTokenInput.value.trim();
 
   if (!config.org || !config.project || !token) {
     setDevopsStatus("Organization, project, and token are required.", true);
+    if (source === "saved") {
+      renderDevopsPanel();
+      devopsDialog.showModal();
+    }
     return;
   }
 
@@ -1364,29 +1710,52 @@ async function syncDevopsInbox() {
   localStorage.setItem(DEVOPS_TOKEN_KEY, token);
   setDevopsStatus("Fetching work item IDs...");
   syncDevopsBtn.disabled = true;
+  openDevopsBtn.disabled = true;
 
   try {
     const ids = await fetchDevopsWorkItemIds(config, token);
     setDevopsStatus(`Fetching ${ids.length} work item${ids.length === 1 ? "" : "s"}...`);
     const workItems = await fetchDevopsWorkItems(config, token, ids);
-    state.devops.inbox = mergeDevopsInbox(workItems.map((item) => mapDevopsWorkItem(item, config)));
+    const syncableWorkItems = workItems.filter(isSyncableDevopsWorkItem);
+    const parentIds = getDevopsParentIds(syncableWorkItems);
+    const parentTitles = parentIds.length ? await fetchDevopsParentTitles(config, token, parentIds) : new Map();
+    state.devops.inbox = mergeDevopsInbox(syncableWorkItems.map((item) => mapDevopsWorkItem(item, config, parentTitles)));
     saveAndRender();
     renderDevopsPanel();
-    setDevopsStatus(`Synced ${workItems.length} work item${workItems.length === 1 ? "" : "s"}.`);
+    setDevopsStatus(`Synced ${syncableWorkItems.length} task/bug item${syncableWorkItems.length === 1 ? "" : "s"}.`);
   } catch (error) {
     setDevopsStatus(error.message || "DevOps sync failed.", true);
   } finally {
     syncDevopsBtn.disabled = false;
+    openDevopsBtn.disabled = false;
   }
 }
 
+function getSavedDevopsConfig() {
+  const config = state.devops.config || {};
+  return {
+    org: config.org || DEFAULT_DEVOPS_ORG,
+    project: config.project || DEFAULT_DEVOPS_PROJECT,
+    projectStartDate: isIsoDate(config.projectStartDate) ? config.projectStartDate : toIsoDate(new Date()),
+    wiql: config.wiql || DEFAULT_WIQL
+  };
+}
+
+function getDevopsFormConfig() {
+  return {
+    org: devopsOrgInput.value.trim(),
+    project: devopsProjectInput.value.trim(),
+    projectStartDate: isIsoDate(devopsProjectStartInput.value) ? devopsProjectStartInput.value : toIsoDate(new Date()),
+    wiql: devopsWiqlInput.value.trim() || DEFAULT_WIQL
+  };
+}
+
 async function fetchDevopsWorkItemIds(config, token) {
-  const response = await fetch(`${getDevopsProjectUrl(config)}/_apis/wit/wiql?api-version=7.1`, {
+  const data = await fetchDevopsJson(`${getDevopsProjectUrl(config)}/_apis/wit/wiql?api-version=7.1`, {
     method: "POST",
     headers: devopsHeaders(token),
     body: JSON.stringify({ query: config.wiql })
   });
-  const data = await readDevopsResponse(response);
   return (data.workItems || []).map((item) => item.id);
 }
 
@@ -1396,12 +1765,29 @@ async function fetchDevopsWorkItems(config, token, ids) {
 
   for (const batch of batches) {
     const url = `${getDevopsProjectUrl(config)}/_apis/wit/workitems?ids=${batch.join(",")}&$expand=Relations&errorPolicy=Omit&api-version=7.1`;
-    const response = await fetch(url, { headers: devopsHeaders(token) });
-    const data = await readDevopsResponse(response);
+    const data = await fetchDevopsJson(url, { headers: devopsHeaders(token) });
     results.push(...(data.value || []));
   }
 
   return results;
+}
+
+function isSyncableDevopsWorkItem(workItem) {
+  const type = String(workItem.fields?.["System.WorkItemType"] || "").trim().toLowerCase();
+  return type === "task" || type === "bug";
+}
+
+function getDevopsParentIds(workItems) {
+  return Array.from(new Set(workItems.map(getDevopsParentId).filter(Boolean)));
+}
+
+async function fetchDevopsParentTitles(config, token, parentIds) {
+  setDevopsStatus(`Fetching ${parentIds.length} parent item${parentIds.length === 1 ? "" : "s"}...`);
+  const parentWorkItems = await fetchDevopsWorkItems(config, token, parentIds);
+  return new Map(parentWorkItems.map((item) => [
+    String(item.id),
+    item.fields?.["System.Title"] || `Work item ${item.id}`
+  ]));
 }
 
 async function readDevopsResponse(response) {
@@ -1416,16 +1802,45 @@ async function readDevopsResponse(response) {
   }
 
   if (!response.ok) {
-    throw new Error(data.message || `Azure DevOps request failed (${response.status}).`);
+    const error = new Error(data.message || `Azure DevOps request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
   }
 
   return data;
 }
 
-function mapDevopsWorkItem(workItem, config) {
+async function fetchDevopsJson(url, options = {}, retries = 2) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      return await readDevopsResponse(response);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isRetryableDevopsError(error)) break;
+      setDevopsStatus(`Connection issue. Retrying ${attempt + 1} of ${retries}...`);
+      await sleep(600 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function isRetryableDevopsError(error) {
+  if (!error.status) return true;
+  return error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
   const fields = workItem.fields || {};
   const externalId = String(workItem.id);
   const title = fields["System.Title"] || `Work item ${externalId}`;
+  const parentId = getDevopsParentId(workItem);
+  const parentTitle = parentId ? parentTitles.get(parentId) || "" : "";
   const mapped = {
     externalId,
     title,
@@ -1436,10 +1851,11 @@ function mapDevopsWorkItem(workItem, config) {
     iterationPath: fields["System.IterationPath"] || "",
     tags: fields["System.Tags"] || "",
     changedDate: fields["System.ChangedDate"] || "",
-    parentId: getDevopsParentId(workItem),
+    parentId,
+    parentTitle,
     dueDate: getDevopsDueDate(fields),
     url: `${getDevopsProjectUrl(config)}/_workitems/edit/${externalId}`,
-    suggestedGroup: getPathLeaf(fields["System.AreaPath"]) || getLastGroupName(),
+    suggestedGroup: parentTitle || getPathLeaf(fields["System.AreaPath"]) || getLastGroupName(),
     suggestedType: getDevopsTaskType(fields["System.WorkItemType"], title)
   };
   mapped.signature = getDevopsSignature(mapped);
@@ -1521,6 +1937,7 @@ function applyDevopsUpdate(item) {
   if (isMilestoneType(task.type)) task.duration = 1;
   task.owner = item.assignedTo || "";
   task.dependsOn = item.parentId || "";
+  if (item.parentTitle) task.group = item.parentTitle;
   if (item.dueDate) task.dueDate = item.dueDate;
   task.status = getDevopsStatus(item.state);
   task.externalUrl = item.url;
@@ -1554,14 +1971,45 @@ function insertTaskInGroup(task) {
   state.tasks.splice(insertAt, 0, task);
 }
 
+function moveTaskToGroup(task, nextGroup, previousGroup) {
+  const nextGroupName = normalizeGroupName(nextGroup);
+  if (nextGroupName === previousGroup) {
+    task.group = nextGroup;
+    return;
+  }
+
+  const targetGroupExists = state.tasks.some((item) => (
+    item.id !== task.id && normalizeGroupName(item.group) === nextGroupName
+  ));
+
+  task.group = nextGroup;
+  if (!targetGroupExists) return;
+
+  const withoutTask = state.tasks.filter((item) => item.id !== task.id);
+  let insertAt = withoutTask.length;
+  withoutTask.forEach((item, index) => {
+    if (normalizeGroupName(item.group) === nextGroupName) insertAt = index + 1;
+  });
+
+  withoutTask.splice(insertAt, 0, task);
+  state.tasks = withoutTask;
+}
+
 function getDragTargetRow(event) {
-  if (!draggedTaskId) return null;
+  if (!draggedTaskId || draggedGroupName) return null;
   const row = event.target.closest("tr[data-task-id]");
   if (!row || row.dataset.taskId === draggedTaskId) return null;
 
   const draggedTask = state.tasks.find((task) => task.id === draggedTaskId);
   if (!draggedTask || normalizeGroupName(draggedTask.group) !== row.dataset.group) return null;
 
+  return row;
+}
+
+function getGroupDragTargetRow(event) {
+  if (!draggedGroupName) return null;
+  const row = event.target.closest("tr.table-group-row[data-group-name]");
+  if (!row || row.dataset.groupName === draggedGroupName) return null;
   return row;
 }
 
@@ -1606,6 +2054,28 @@ function reorderTaskWithinGroup(sourceId, targetId, position) {
   return true;
 }
 
+function reorderGroup(sourceGroupName, targetGroupName, position) {
+  const sourceName = normalizeGroupName(sourceGroupName);
+  const targetName = normalizeGroupName(targetGroupName);
+  if (!sourceName || !targetName || sourceName === targetName) return false;
+
+  const groups = getTaskGroups();
+  const sourceIndex = groups.findIndex((group) => group.name === sourceName);
+  const targetIndex = groups.findIndex((group) => group.name === targetName);
+  if (sourceIndex < 0 || targetIndex < 0) return false;
+
+  const reorderedGroups = groups.slice();
+  const [movedGroup] = reorderedGroups.splice(sourceIndex, 1);
+  let insertAt = reorderedGroups.findIndex((group) => group.name === targetName);
+  if (position === "after") insertAt += 1;
+  reorderedGroups.splice(insertAt, 0, movedGroup);
+
+  if (groups.every((group, index) => group.name === reorderedGroups[index].name)) return false;
+
+  state.tasks = reorderedGroups.flatMap((group) => group.tasks);
+  return true;
+}
+
 function normalizeDevopsState(devops) {
   const defaults = defaultDevopsState();
   if (!devops || typeof devops !== "object") return defaults;
@@ -1614,6 +2084,7 @@ function normalizeDevopsState(devops) {
     config: {
       org: typeof devops.config?.org === "string" && devops.config.org.trim() ? devops.config.org : DEFAULT_DEVOPS_ORG,
       project: typeof devops.config?.project === "string" && devops.config.project.trim() ? devops.config.project : DEFAULT_DEVOPS_PROJECT,
+      projectStartDate: isIsoDate(devops.config?.projectStartDate) ? devops.config.projectStartDate : toIsoDate(new Date()),
       wiql: typeof devops.config?.wiql === "string" && devops.config.wiql.trim() ? devops.config.wiql : DEFAULT_WIQL
     },
     inbox: Array.isArray(devops.inbox) ? devops.inbox.map(normalizeDevopsInboxItem).filter(Boolean) : [],
@@ -1635,12 +2106,13 @@ function normalizeDevopsInboxItem(item) {
     tags: typeof item.tags === "string" ? item.tags : "",
     changedDate: typeof item.changedDate === "string" ? item.changedDate : "",
     parentId: item.parentId == null ? "" : String(item.parentId),
+    parentTitle: typeof item.parentTitle === "string" ? item.parentTitle : "",
     dueDate: isIsoDate(item.dueDate) ? item.dueDate : "",
     url: typeof item.url === "string" ? item.url : "",
     signature: typeof item.signature === "string" ? item.signature : "",
     status: ["new", "changed", "imported", "ignored"].includes(item.status) ? item.status : "new",
     localTaskId: typeof item.localTaskId === "string" ? item.localTaskId : "",
-    suggestedGroup: typeof item.suggestedGroup === "string" ? item.suggestedGroup : "",
+    suggestedGroup: typeof item.suggestedGroup === "string" && item.suggestedGroup ? item.suggestedGroup : (typeof item.parentTitle === "string" ? item.parentTitle : ""),
     suggestedType: normalizeTaskType(item.suggestedType || item.workItemType)
   };
 }
@@ -1650,11 +2122,35 @@ function defaultDevopsState() {
     config: {
       org: DEFAULT_DEVOPS_ORG,
       project: DEFAULT_DEVOPS_PROJECT,
+      projectStartDate: toIsoDate(new Date()),
       wiql: DEFAULT_WIQL
     },
     inbox: [],
     ignoredIds: [],
     filters: defaultDevopsFilters()
+  };
+}
+
+function normalizeCapacityState(capacity) {
+  const defaults = defaultCapacityState();
+  if (!capacity || typeof capacity !== "object") return defaults;
+
+  const owners = {};
+  Object.entries(capacity.owners || {}).forEach(([owner, value]) => {
+    const normalizedOwner = normalizeOwnerName(owner);
+    if (normalizedOwner) owners[normalizedOwner] = normalizeCapacityValue(value, defaults.defaultDaily);
+  });
+
+  return {
+    defaultDaily: normalizeCapacityValue(capacity.defaultDaily, defaults.defaultDaily),
+    owners
+  };
+}
+
+function defaultCapacityState() {
+  return {
+    defaultDaily: 1,
+    owners: {}
   };
 }
 
@@ -1737,6 +2233,7 @@ function getDevopsSignature(item) {
     tags: item.tags,
     changedDate: item.changedDate,
     parentId: item.parentId,
+    parentTitle: item.parentTitle,
     dueDate: item.dueDate
   });
 }
@@ -1798,6 +2295,91 @@ function getTaskGroups() {
   });
 
   return groups;
+}
+
+function getCapacityOwners() {
+  const owners = new Set();
+  state.tasks.forEach((task) => owners.add(normalizeOwnerName(task.owner)));
+  Object.keys(state.capacity.owners || {}).forEach((owner) => owners.add(normalizeOwnerName(owner)));
+  owners.delete("");
+  return Array.from(owners).sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeOwnerName(value) {
+  const owner = typeof value === "string" ? value.trim() : "";
+  return owner || "Unassigned";
+}
+
+function getOwnerCapacity(owner) {
+  const key = normalizeOwnerName(owner);
+  return normalizeCapacityValue(state.capacity.owners[key], state.capacity.defaultDaily);
+}
+
+function normalizeCapacityValue(value, fallback = 1) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.round(parsed * 100) / 100;
+}
+
+function formatCapacityValue(value) {
+  return Number(value || 0).toFixed(2).replace(/\.?0+$/, "");
+}
+
+function analyzeCapacity(range) {
+  const days = range ? enumerateDays(range.start, range.end).filter((day) => !isWeekendIso(day)) : [];
+  const owners = getCapacityOwners();
+  const loads = new Map(owners.map((owner) => [owner, new Map()]));
+
+  state.tasks.forEach((task) => {
+    if (!isCapacityDemandTask(task)) return;
+    const owner = normalizeOwnerName(task.owner);
+    if (!loads.has(owner)) loads.set(owner, new Map());
+    getTaskBusinessDays(task).forEach((day) => {
+      const ownerLoads = loads.get(owner);
+      ownerLoads.set(day, (ownerLoads.get(day) || 0) + 1);
+    });
+  });
+
+  const overloads = [];
+  loads.forEach((ownerLoads, owner) => {
+    const capacity = getOwnerCapacity(owner);
+    ownerLoads.forEach((load, day) => {
+      if (load > capacity) overloads.push({ owner, day, load, capacity });
+    });
+  });
+
+  return {
+    owners: Array.from(loads.keys()).sort((a, b) => a.localeCompare(b)),
+    days,
+    loads,
+    overloads
+  };
+}
+
+function isCapacityDemandTask(task) {
+  return isIsoDate(task.startDate)
+    && Number.isFinite(task.duration)
+    && task.duration > 0
+    && !isDoneStatus(task.status)
+    && !isMilestoneType(task.type);
+}
+
+function getTaskBusinessDays(task) {
+  const days = [];
+  let cursor = task.startDate;
+  while (days.length < Math.max(1, task.duration)) {
+    if (!isWeekendIso(cursor)) days.push(cursor);
+    cursor = addCalendarDays(cursor, 1);
+  }
+  return days;
+}
+
+function getCapacityLevel(ratio) {
+  if (!Number.isFinite(ratio)) return "over";
+  if (ratio > 1) return "over";
+  if (ratio >= 0.85) return "near";
+  if (ratio > 0) return "ok";
+  return "empty";
 }
 
 function normalizeGroupName(value) {
@@ -1930,7 +2512,16 @@ function analyzeTasks() {
     ? state.tasks.map(getFinishDate).sort(compareDates).at(-1)
     : "";
 
-  return { warnings, range, projectFinish };
+  const capacity = analyzeCapacity(range);
+  capacity.overloads.forEach((overload) => {
+    warnings.push({
+      taskId: "",
+      type: "Capacity",
+      message: `${overload.owner} is over capacity on ${formatShortDate(overload.day)}: ${formatCapacityValue(overload.load)} demand / ${formatCapacityValue(overload.capacity)} capacity.`
+    });
+  });
+
+  return { warnings, range, projectFinish, capacity };
 }
 
 function autoSchedule() {
@@ -2076,6 +2667,10 @@ function formatShortDate(isoDate) {
   if (!isIsoDate(isoDate)) return "";
   const date = parseIsoDate(isoDate);
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function formatMonthLabel(isoDate) {
+  return new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseIsoDate(isoDate));
 }
 
 function formatDateTime(value) {
