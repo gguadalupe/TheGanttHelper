@@ -15,6 +15,13 @@
       <div class="topbar-actions">
         <button id="addTaskBtn" type="button">+ Task</button>
         <button id="autoScheduleBtn" type="button">Auto schedule</button>
+        <button id="togglePlanningBoardBtn" type="button">Planning board</button>
+        <button id="addPlanningMonthBtn" type="button" hidden>+ Month</button>
+        <div id="ganttZoomToggle" class="zoom-toggle" role="group" aria-label="Timeline zoom">
+          <button type="button" data-zoom="day" aria-pressed="true">Day</button>
+          <button type="button" data-zoom="week" aria-pressed="false">Week</button>
+          <button type="button" data-zoom="month" aria-pressed="false">Month</button>
+        </div>
         <button id="openColumnsBtn" type="button">Columns</button>
         <button id="openDevopsBtn" type="button">DevOps sync</button>
         <button id="openDevopsOptionsBtn" type="button">Sync options</button>
@@ -66,6 +73,7 @@
             <div id="gantt" class="gantt"></div>
           </div>
         </div>
+        <div id="planningBoard" class="planning-board" hidden></div>
       </section>
 
       <aside class="warnings-panel">

@@ -5,6 +5,11 @@ const BOARD_SPLIT_KEY = "simple-gantt-board-split-v1";
 const COLLAPSED_GROUPS_KEY = "simple-gantt-collapsed-groups-v1";
 const COLUMN_SETTINGS_KEY = "simple-gantt-column-settings-v1";
 const DEVOPS_COLLAPSED_GROUPS_KEY = "simple-gantt-devops-collapsed-groups-v1";
+const VIEW_KEY = "simple-gantt-view-v1";
+const GANTT_ZOOM_KEY = "simple-gantt-zoom-v1";
+const GANTT_ZOOM_LEVELS = { day: 34, week: 12, month: 4 };
+const PLANNING_MONTH_COUNT_KEY = "simple-gantt-planning-month-count-v1";
+const DEFAULT_PLANNING_MONTH_COUNT = 4;
 const DEFAULT_DEVOPS_ORG = "insolut";
 const DEFAULT_DEVOPS_PROJECT = "Insurance Solutions";
 const DEFAULT_WIQL = [
@@ -72,6 +77,7 @@ const sampleTasks = [
     type: "milestone",
     owner: "",
     startDate: toIsoDate(new Date()),
+    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 1,
     dependsOn: "",
     dueDate: "",
@@ -86,6 +92,7 @@ const sampleTasks = [
     type: "task",
     owner: "",
     startDate: addBusinessDays(toIsoDate(new Date()), 1),
+    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 3,
     dependsOn: "",
     dueDate: "",
@@ -100,6 +107,7 @@ const sampleTasks = [
     type: "task",
     owner: "",
     startDate: addBusinessDays(toIsoDate(new Date()), 4),
+    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 5,
     dependsOn: "",
     dueDate: "",
@@ -118,12 +126,16 @@ const appShell = document.querySelector(".app-shell");
 const projectBoard = document.querySelector(".project-board");
 const boardResizer = document.querySelector("#boardResizer");
 const openColumnsBtn = document.querySelector("#openColumnsBtn");
+const togglePlanningBoardBtn = document.querySelector("#togglePlanningBoardBtn");
+const addPlanningMonthBtn = document.querySelector("#addPlanningMonthBtn");
+const ganttZoomToggle = document.querySelector("#ganttZoomToggle");
 const openDevopsBtn = document.querySelector("#openDevopsBtn");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const projectSummary = document.querySelector("#projectSummary");
 const timelineSummary = document.querySelector("#timelineSummary");
 const taskTableBody = document.querySelector("#taskTableBody");
+const planningBoard = document.querySelector("#planningBoard");
 const gantt = document.querySelector("#gantt");
 const warningsList = document.querySelector("#warningsList");
 const warningCount = document.querySelector("#warningCount");
@@ -152,9 +164,14 @@ const devopsInboxList = document.querySelector("#devopsInboxList");
 const devopsTypeFilter = document.querySelector("#devopsTypeFilter");
 const devopsStatusFilter = document.querySelector("#devopsStatusFilter");
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
+let currentView = localStorage.getItem(VIEW_KEY) === "planning" ? "planning" : "schedule";
+let currentZoom = loadGanttZoom();
+let planningMonthCount = loadPlanningMonthCount();
 let draggedTaskId = "";
 let draggedGroupName = "";
+let draggedBoardTaskId = "";
 let boardResizeActive = false;
+let groupBarDrag = null;
 let collapsedGroups = loadCollapsedGroups();
 let columnSettings = loadColumnSettings();
 let collapsedDevopsGroups = loadCollapsedDevopsGroups();
@@ -173,6 +190,7 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
     type: "task",
     owner: "",
     startDate,
+    planningMonth: startDate.slice(0, 7),
     duration: 1,
     dependsOn: lastTask ? lastTask.taskId : "",
     dueDate: "",
@@ -185,6 +203,74 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
 document.querySelector("#autoScheduleBtn").addEventListener("click", () => {
   autoSchedule();
   saveAndRender();
+});
+
+togglePlanningBoardBtn.addEventListener("click", () => {
+  currentView = currentView === "planning" ? "schedule" : "planning";
+  localStorage.setItem(VIEW_KEY, currentView);
+  render();
+});
+
+addPlanningMonthBtn.addEventListener("click", () => {
+  planningMonthCount += 1;
+  localStorage.setItem(PLANNING_MONTH_COUNT_KEY, String(planningMonthCount));
+  render();
+});
+
+ganttZoomToggle.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-zoom]");
+  if (!button) return;
+  const zoom = button.dataset.zoom;
+  if (!GANTT_ZOOM_LEVELS[zoom] || zoom === currentZoom) return;
+  currentZoom = zoom;
+  localStorage.setItem(GANTT_ZOOM_KEY, zoom);
+  render();
+});
+
+gantt.addEventListener("pointerdown", (event) => {
+  const bar = event.target.closest(".group-summary-bar");
+  if (!bar) return;
+  event.preventDefault();
+  bar.setPointerCapture(event.pointerId);
+  groupBarDrag = {
+    pointerId: event.pointerId,
+    groupName: bar.dataset.groupName,
+    startX: event.clientX,
+    dayWidth: GANTT_ZOOM_LEVELS[currentZoom] || GANTT_ZOOM_LEVELS.day,
+    dayDelta: 0,
+    bar
+  };
+  bar.classList.add("dragging");
+});
+
+gantt.addEventListener("pointermove", (event) => {
+  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
+  const deltaX = event.clientX - groupBarDrag.startX;
+  const dayDelta = Math.round(deltaX / groupBarDrag.dayWidth);
+  groupBarDrag.dayDelta = dayDelta;
+  groupBarDrag.bar.style.transform = dayDelta ? `translateX(${dayDelta * groupBarDrag.dayWidth}px)` : "";
+});
+
+gantt.addEventListener("pointerup", (event) => {
+  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
+  const { groupName, dayDelta, bar, pointerId } = groupBarDrag;
+  if (bar.hasPointerCapture(pointerId)) bar.releasePointerCapture(pointerId);
+  bar.classList.remove("dragging");
+  bar.style.transform = "";
+  groupBarDrag = null;
+  if (dayDelta) {
+    shiftGroupDates(groupName, dayDelta);
+    saveAndRender();
+  }
+});
+
+gantt.addEventListener("pointercancel", (event) => {
+  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
+  const { bar, pointerId } = groupBarDrag;
+  if (bar.hasPointerCapture(pointerId)) bar.releasePointerCapture(pointerId);
+  bar.classList.remove("dragging");
+  bar.style.transform = "";
+  groupBarDrag = null;
 });
 
 toggleChecksBtn.addEventListener("click", () => {
@@ -390,6 +476,13 @@ projectNameInput.addEventListener("change", () => {
 });
 
 taskTableBody.addEventListener("change", (event) => {
+  const renameFrom = event.target.dataset.renameGroup;
+  if (renameFrom !== undefined) {
+    renameTaskGroup(renameFrom, event.target.value);
+    saveAndRender();
+    return;
+  }
+
   const field = event.target.dataset.field;
   const id = event.target.dataset.id;
   if (!field || !id) return;
@@ -408,6 +501,9 @@ taskTableBody.addEventListener("change", (event) => {
     task[field] = event.target.value.trim();
   } else if (field === "group") {
     moveTaskToGroup(task, event.target.value, previousGroup);
+  } else if (field === "startDate") {
+    task.startDate = event.target.value;
+    if (!task.planningMonth && isIsoDate(task.startDate)) task.planningMonth = task.startDate.slice(0, 7);
   } else {
     task[field] = event.target.value;
   }
@@ -478,7 +574,8 @@ taskTableBody.addEventListener("dragover", (event) => {
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
   clearDropIndicators();
-  targetRow.classList.add(getDropPosition(event, targetRow) === "before" ? "drop-before" : "drop-after");
+  const dropsAtGroupTop = !draggedGroupName && targetRow.classList.contains("table-group-row");
+  targetRow.classList.add(dropsAtGroupTop || getDropPosition(event, targetRow) === "before" ? "drop-before" : "drop-after");
 });
 
 taskTableBody.addEventListener("dragleave", (event) => {
@@ -494,7 +591,7 @@ taskTableBody.addEventListener("drop", (event) => {
   event.preventDefault();
   const moved = draggedGroupName
     ? reorderGroup(draggedGroupName, targetRow.dataset.groupName, getDropPosition(event, targetRow))
-    : reorderTaskWithinGroup(draggedTaskId, targetRow.dataset.taskId, getDropPosition(event, targetRow));
+    : moveDraggedTask(draggedTaskId, targetRow, getDropPosition(event, targetRow));
   draggedTaskId = "";
   draggedGroupName = "";
   clearDropIndicators();
@@ -518,6 +615,39 @@ ownerCapacityList.addEventListener("change", (event) => {
   if (!owner) return;
   state.capacity.owners[owner] = normalizeCapacityValue(event.target.value, state.capacity.defaultDaily);
   saveAndRender();
+});
+
+planningBoard.addEventListener("dragstart", (event) => {
+  const card = event.target.closest("[data-board-task-id]");
+  if (!card) return;
+  draggedBoardTaskId = card.dataset.boardTaskId;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", draggedBoardTaskId);
+  card.classList.add("dragging");
+});
+
+planningBoard.addEventListener("dragover", (event) => {
+  const column = event.target.closest("[data-planning-bucket]");
+  if (!draggedBoardTaskId || !column) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  planningBoard.querySelectorAll(".board-column.drop-target").forEach((item) => item.classList.remove("drop-target"));
+  column.classList.add("drop-target");
+});
+
+planningBoard.addEventListener("drop", (event) => {
+  const column = event.target.closest("[data-planning-bucket]");
+  if (!draggedBoardTaskId || !column) return;
+  event.preventDefault();
+  const moved = moveTaskToPlanningBucket(draggedBoardTaskId, column.dataset.planningBucket, column.dataset.planningMonth || "");
+  draggedBoardTaskId = "";
+  clearPlanningDropState();
+  if (moved) saveAndRender();
+});
+
+planningBoard.addEventListener("dragend", () => {
+  draggedBoardTaskId = "";
+  clearPlanningDropState();
 });
 
 render();
@@ -555,6 +685,7 @@ function normalizeState(raw) {
       type: normalizeTaskType(task.type),
       owner: typeof task.owner === "string" ? task.owner : "",
       startDate: isIsoDate(task.startDate) ? task.startDate : toIsoDate(new Date()),
+      planningMonth: normalizePlanningMonth(task.planningMonth, task.startDate),
       duration: Math.max(1, Number.parseInt(task.duration || task.durationDays, 10) || 1),
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
       dueDate: isIsoDate(task.dueDate) ? task.dueDate : "",
@@ -791,6 +922,16 @@ function saveCollapsedDevopsGroups() {
   localStorage.setItem(DEVOPS_COLLAPSED_GROUPS_KEY, JSON.stringify(Array.from(collapsedDevopsGroups)));
 }
 
+function loadPlanningMonthCount() {
+  const saved = Number.parseInt(localStorage.getItem(PLANNING_MONTH_COUNT_KEY), 10);
+  return Number.isFinite(saved) ? Math.max(DEFAULT_PLANNING_MONTH_COUNT, saved) : DEFAULT_PLANNING_MONTH_COUNT;
+}
+
+function loadGanttZoom() {
+  const saved = localStorage.getItem(GANTT_ZOOM_KEY);
+  return GANTT_ZOOM_LEVELS[saved] ? saved : "day";
+}
+
 function isGroupCollapsed(groupName) {
   return collapsedGroups.has(normalizeGroupName(groupName));
 }
@@ -809,13 +950,29 @@ function toggleTaskGroup(groupName) {
 function render() {
   const analysis = analyzeTasks();
   projectNameInput.value = state.projectName;
+  renderViewToggle();
   renderChecksToggle(analysis);
   renderDevopsButton();
   renderSummary(analysis);
   renderTable(analysis);
   renderGantt(analysis);
+  renderPlanningBoard(analysis);
   renderWarnings(analysis);
   renderCapacity(analysis);
+}
+
+function renderViewToggle() {
+  const planningActive = currentView === "planning";
+  projectBoard.hidden = planningActive;
+  planningBoard.hidden = !planningActive;
+  addPlanningMonthBtn.hidden = !planningActive;
+  ganttZoomToggle.hidden = planningActive;
+  togglePlanningBoardBtn.textContent = planningActive ? "Schedule view" : "Planning board";
+  togglePlanningBoardBtn.setAttribute("aria-pressed", String(planningActive));
+
+  ganttZoomToggle.querySelectorAll("[data-zoom]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.zoom === currentZoom));
+  });
 }
 
 function renderDevopsButton() {
@@ -897,13 +1054,25 @@ function renderTable(analysis) {
 
   getTaskGroups().forEach((group) => {
     const collapsed = isGroupCollapsed(group.name);
+    const rollup = getGroupRollup(group.tasks);
     const groupRow = document.createElement("tr");
     groupRow.className = "table-group-row";
     groupRow.dataset.groupName = group.name;
-    const groupCell = document.createElement("td");
-    groupCell.colSpan = getVisibleColumnCount();
-    groupCell.append(groupHeaderContent(group.name, group.tasks.length, collapsed));
-    groupRow.append(groupCell);
+    groupRow.append(
+      groupEmptyCell("id"),
+      groupTitleCell(group.name, group.tasks.length, collapsed),
+      groupEmptyCell("group"),
+      groupEmptyCell("type"),
+      groupEmptyCell("owner"),
+      groupRollupCell(rollup.range ? formatShortDate(rollup.range.start) : "", "start"),
+      groupRollupCell(rollup.range ? `${rollup.businessDays}d` : "", "duration"),
+      groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
+      groupEmptyCell("dependsOn"),
+      groupEmptyCell("due"),
+      groupRollupCell(rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : "", "status"),
+      groupEmptyCell("notes"),
+      groupEmptyCell("actions")
+    );
     taskTableBody.append(groupRow);
 
     if (collapsed) return;
@@ -941,11 +1110,93 @@ function renderTable(analysis) {
   applyTableColumnSettings();
 }
 
-function groupHeaderContent(groupName, taskCount, collapsed) {
+function renderPlanningBoard(analysis) {
+  planningBoard.textContent = "";
+  const warningsByTask = groupWarningsByTask(analysis.warnings);
+  const buckets = getPlanningBuckets();
+
+  buckets.forEach((bucket) => {
+    const tasks = getPlanningBucketTasks(bucket);
+    const column = document.createElement("section");
+    column.className = `board-column ${bucket.kind}`;
+    column.dataset.planningBucket = bucket.kind;
+    if (bucket.month) column.dataset.planningMonth = bucket.month;
+
+    const header = document.createElement("div");
+    header.className = "board-column-header";
+    const title = document.createElement("h3");
+    title.textContent = bucket.label;
+    const summary = document.createElement("p");
+    summary.textContent = getPlanningBucketSummary(bucket, tasks);
+    header.append(title, summary);
+
+    const cards = document.createElement("div");
+    cards.className = "board-cards";
+    if (!tasks.length) {
+      const empty = document.createElement("p");
+      empty.className = "board-empty";
+      empty.textContent = "No tickets";
+      cards.append(empty);
+    } else {
+      tasks.forEach((task) => cards.append(planningCard(task, warningsByTask.get(task.id) || [])));
+    }
+
+    column.append(header, cards);
+    planningBoard.append(column);
+  });
+}
+
+function planningCard(task, warnings = []) {
+  const card = document.createElement("article");
+  card.className = [
+    "board-card",
+    warnings.length ? "has-warning" : "",
+    isDoneStatus(task.status) ? "done" : ""
+  ].filter(Boolean).join(" ");
+  card.draggable = true;
+  card.dataset.boardTaskId = task.id;
+
+  const title = document.createElement("h4");
+  title.textContent = `${task.taskId ? `${task.taskId} ` : ""}${task.name || "Untitled task"}`;
+
+  const meta = document.createElement("p");
+  meta.textContent = [
+    getTypeLabel(task.type),
+    task.owner || "Unassigned",
+    getStatusLabel(task.status)
+  ].filter(Boolean).join(" | ");
+
+  const footer = document.createElement("div");
+  footer.className = "board-card-footer";
+  footer.append(boardPill(task.group || "Ungrouped"));
+  if (task.dueDate) footer.append(boardPill(`Due ${formatShortDate(task.dueDate)}`));
+  if (warnings.length) footer.append(boardPill(`! ${warnings.length}`, warnings.map((warning) => `${warning.type}: ${warning.message}`).join("\n"), "warning"));
+
+  card.append(title, meta, footer);
+  return card;
+}
+
+function boardPill(text, title = "", className = "") {
+  const pill = document.createElement("span");
+  pill.className = ["board-pill", className].filter(Boolean).join(" ");
+  pill.textContent = text;
+  if (title) pill.title = title;
+  return pill;
+}
+
+function groupTitleCell(groupName, taskCount, collapsed) {
+  const cell = document.createElement("td");
+  cell.dataset.column = "title";
   const wrapper = document.createElement("div");
   wrapper.className = "group-header-cell";
-  wrapper.append(groupDragHandle(groupName), groupToggleButton(groupName, taskCount, collapsed));
-  return wrapper;
+  wrapper.append(
+    groupDragHandle(groupName),
+    groupToggleButton(groupName, collapsed),
+    groupNameInput(groupName),
+    groupCountBadge(taskCount)
+  );
+  cell.append(wrapper);
+  return cell;
 }
 
 function groupDragHandle(groupName) {
@@ -960,14 +1211,47 @@ function groupDragHandle(groupName) {
   return handle;
 }
 
-function groupToggleButton(groupName, taskCount, collapsed) {
+function groupToggleButton(groupName, collapsed) {
   const button = document.createElement("button");
   button.className = "group-toggle";
   button.type = "button";
   button.dataset.toggleGroup = groupName;
   button.setAttribute("aria-expanded", String(!collapsed));
-  button.textContent = `${collapsed ? "+  |  " : "-  |  "} ${groupName} (${taskCount})`;
+  button.setAttribute("aria-label", collapsed ? `Expand ${groupName}` : `Collapse ${groupName}`);
+  button.textContent = collapsed ? "+" : "-";
   return button;
+}
+
+function groupNameInput(groupName) {
+  const input = document.createElement("input");
+  input.className = "group-name-input";
+  input.type = "text";
+  input.value = groupName;
+  input.dataset.renameGroup = groupName;
+  input.setAttribute("aria-label", "Group name");
+  input.title = "Rename this group (updates every task in it)";
+  return input;
+}
+
+function groupCountBadge(taskCount) {
+  const span = document.createElement("span");
+  span.className = "group-count";
+  span.textContent = `${taskCount} task${taskCount === 1 ? "" : "s"}`;
+  return span;
+}
+
+function groupRollupCell(value, column) {
+  const cell = document.createElement("td");
+  cell.dataset.column = column;
+  cell.className = "group-rollup-cell";
+  cell.textContent = value;
+  return cell;
+}
+
+function groupEmptyCell(column) {
+  const cell = document.createElement("td");
+  cell.dataset.column = column;
+  return cell;
 }
 
 function taskNameCell(task, warnings = []) {
@@ -981,8 +1265,8 @@ function taskNameCell(task, warnings = []) {
   handle.type = "button";
   handle.draggable = true;
   handle.dataset.dragTaskId = task.id;
-  handle.title = "Drag to reorder within this group";
-  handle.setAttribute("aria-label", `Reorder ${task.name || "task"}`);
+  handle.title = "Drag to reorder, or drop onto another group to move this task there";
+  handle.setAttribute("aria-label", `Reorder or move ${task.name || "task"}`);
   handle.textContent = "::";
 
   const input = createTaskInput(task, "name", "text");
@@ -1098,9 +1382,12 @@ function renderGantt(analysis) {
   }
 
   const days = enumerateDays(analysis.range.start, analysis.range.end);
+  const dayWidth = GANTT_ZOOM_LEVELS[currentZoom] || GANTT_ZOOM_LEVELS.day;
+  const columnsTemplate = `repeat(${days.length}, minmax(${dayWidth}px, 1fr))`;
   const inner = document.createElement("div");
   inner.className = "gantt-inner";
-  inner.style.width = `${days.length * 34}px`;
+  inner.style.width = `${days.length * dayWidth}px`;
+  inner.style.setProperty("--gantt-col-w", `${dayWidth}px`);
 
   const header = document.createElement("div");
   header.className = "gantt-header";
@@ -1108,7 +1395,7 @@ function renderGantt(analysis) {
 
   const axis = document.createElement("div");
   axis.className = "axis";
-  axis.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
+  axis.style.gridTemplateColumns = columnsTemplate;
 
   getMonthSpans(days).forEach((month) => {
     const cell = document.createElement("div");
@@ -1118,13 +1405,23 @@ function renderGantt(analysis) {
     axis.append(cell);
   });
 
-  days.forEach((day, index) => {
-    const cell = document.createElement("div");
-    cell.className = dayCellClass(day, "axis-cell");
-    cell.style.gridColumn = `${index + 1}`;
-    cell.innerHTML = `<strong>${day.slice(8, 10)}</strong><br>${weekdayLabel(day)}`;
-    axis.append(cell);
-  });
+  if (currentZoom === "day") {
+    days.forEach((day, index) => {
+      const cell = document.createElement("div");
+      cell.className = dayCellClass(day, "axis-cell");
+      cell.style.gridColumn = `${index + 1}`;
+      cell.innerHTML = `<strong>${day.slice(8, 10)}</strong><br>${weekdayLabel(day)}`;
+      axis.append(cell);
+    });
+  } else {
+    getWeekSpans(days).forEach((week) => {
+      const cell = document.createElement("div");
+      cell.className = "axis-cell week-cell";
+      cell.style.gridColumn = `${week.startIndex + 1} / span ${week.dayCount}`;
+      cell.textContent = week.label;
+      axis.append(cell);
+    });
+  }
 
   header.append(axis);
   inner.append(header);
@@ -1133,22 +1430,30 @@ function renderGantt(analysis) {
 
   getTaskGroups().forEach((group) => {
     const collapsed = isGroupCollapsed(group.name);
+    const rollup = getGroupRollup(group.tasks);
     const row = document.createElement("div");
     row.className = "gantt-group-row";
-    row.append(labelCell(group.name, `${group.tasks.length}`));
+    row.append(labelCell(group.name, rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : "0 tasks"));
 
     const track = document.createElement("div");
     track.className = "track group-track";
-    track.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
-    const groupRange = getGroupDateRange(group.tasks);
+    track.style.gridTemplateColumns = columnsTemplate;
+    const groupRange = rollup.range;
     if (groupRange) {
       const startIndex = days.indexOf(groupRange.start);
       const endIndex = days.indexOf(groupRange.end);
       if (startIndex >= 0 && endIndex >= 0) {
         const summary = document.createElement("div");
         summary.className = "group-summary-bar";
+        summary.dataset.groupName = group.name;
         summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
-        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)}`;
+        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)} (drag to reschedule)`;
+
+        const fill = document.createElement("div");
+        fill.className = "group-summary-fill";
+        fill.style.width = `${rollup.totalCount ? Math.round((rollup.doneCount / rollup.totalCount) * 100) : 0}%`;
+        summary.append(fill);
+
         track.append(summary);
       }
     }
@@ -1164,7 +1469,7 @@ function renderGantt(analysis) {
 
       const taskTrack = document.createElement("div");
       taskTrack.className = "track";
-      taskTrack.style.gridTemplateColumns = `repeat(${days.length}, minmax(28px, 1fr))`;
+      taskTrack.style.gridTemplateColumns = columnsTemplate;
 
       days.forEach((day, index) => {
         const cell = document.createElement("div");
@@ -1231,6 +1536,38 @@ function getMonthSpans(days) {
   return months;
 }
 
+function getWeekSpans(days) {
+  const weeks = [];
+  days.forEach((day, index) => {
+    const weekKey = getWeekStart(day);
+    const current = weeks.at(-1);
+    if (current?.key === weekKey) {
+      current.dayCount += 1;
+      return;
+    }
+
+    weeks.push({
+      key: weekKey,
+      startIndex: index,
+      dayCount: 1,
+      label: formatDayMonthLabel(weekKey)
+    });
+  });
+  return weeks;
+}
+
+function getWeekStart(isoDate) {
+  const date = parseIsoDate(isoDate);
+  const weekday = date.getUTCDay();
+  const offsetToMonday = weekday === 0 ? -6 : 1 - weekday;
+  date.setUTCDate(date.getUTCDate() + offsetToMonday);
+  return toIsoDate(date);
+}
+
+function formatDayMonthLabel(isoDate) {
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(parseIsoDate(isoDate));
+}
+
 function getGroupDateRange(tasks) {
   const ranges = tasks
     .filter((task) => isIsoDate(task.startDate) && isIsoDate(getFinishDate(task)))
@@ -1244,6 +1581,62 @@ function getGroupDateRange(tasks) {
     start: ranges.map((range) => range.start).sort(compareDates)[0],
     end: ranges.map((range) => range.end).sort(compareDates).at(-1)
   };
+}
+
+function getGroupRollup(tasks) {
+  const range = getGroupDateRange(tasks);
+  const doneCount = tasks.filter((task) => isDoneStatus(task.status)).length;
+  const inProgressCount = tasks.filter((task) => isInProgressStatus(task.status)).length;
+
+  let status = "not-started";
+  if (tasks.length && doneCount === tasks.length) status = "done";
+  else if (doneCount > 0 || inProgressCount > 0) status = "in-progress";
+
+  return {
+    range,
+    businessDays: range ? countBusinessDays(range.start, range.end) : 0,
+    doneCount,
+    totalCount: tasks.length,
+    status
+  };
+}
+
+function countBusinessDays(start, end) {
+  return enumerateDays(start, end).filter((day) => !isWeekendIso(day)).length;
+}
+
+function shiftGroupDates(groupName, dayDelta) {
+  if (!dayDelta) return;
+  const normalized = normalizeGroupName(groupName);
+  state.tasks.forEach((task) => {
+    if (normalizeGroupName(task.group) !== normalized) return;
+    if (!isIsoDate(task.startDate)) return;
+    task.startDate = addCalendarDays(task.startDate, dayDelta);
+    task.planningMonth = task.startDate.slice(0, 7);
+  });
+  autoSchedule();
+}
+
+function renameTaskGroup(previousName, nextNameRaw) {
+  const previous = normalizeGroupName(previousName);
+  const next = normalizeGroupName(nextNameRaw);
+  if (next === previous) return false;
+
+  let changed = false;
+  state.tasks.forEach((task) => {
+    if (normalizeGroupName(task.group) === previous) {
+      task.group = next;
+      changed = true;
+    }
+  });
+
+  if (changed && collapsedGroups.has(previous)) {
+    collapsedGroups.delete(previous);
+    collapsedGroups.add(next);
+    saveCollapsedGroups();
+  }
+
+  return changed;
 }
 
 function renderWarnings(analysis) {
@@ -1905,6 +2298,7 @@ function addDevopsItemToPlan(item, row) {
     type,
     owner: item.assignedTo || "",
     startDate: isIsoDate(startDate) ? startDate : toIsoDate(new Date()),
+    planningMonth: (isIsoDate(startDate) ? startDate : toIsoDate(new Date())).slice(0, 7),
     duration: isMilestoneType(type) ? 1 : duration,
     dependsOn: item.parentId || "",
     dueDate: item.dueDate || "",
@@ -1971,6 +2365,108 @@ function insertTaskInGroup(task) {
   state.tasks.splice(insertAt, 0, task);
 }
 
+function getPlanningBuckets() {
+  const visibleMonths = getVisiblePlanningMonths();
+  return [
+    { kind: "unscheduled", label: "Unscheduled" },
+    ...visibleMonths.map((month) => ({ kind: "month", month, label: formatPlanningMonth(month) })),
+    { kind: "future", label: "Future" },
+    { kind: "done", label: "Done" }
+  ];
+}
+
+function getVisiblePlanningMonths() {
+  const months = new Set();
+  const currentMonth = toIsoDate(new Date()).slice(0, 7);
+  const futureCutoff = addMonths(currentMonth, planningMonthCount);
+
+  for (let offset = 0; offset < planningMonthCount; offset += 1) {
+    months.add(addMonths(currentMonth, offset));
+  }
+
+  state.tasks.forEach((task) => {
+    const month = normalizePlanningMonth(task.planningMonth, task.startDate);
+    if (month && comparePlanningMonths(month, futureCutoff) < 0) months.add(month);
+  });
+
+  return Array.from(months).sort(comparePlanningMonths);
+}
+
+function getPlanningBucketTasks(bucket) {
+  return state.tasks.filter((task) => {
+    if (bucket.kind === "done") return isDoneStatus(task.status);
+    if (isDoneStatus(task.status)) return false;
+
+    const month = normalizePlanningMonth(task.planningMonth, "");
+    if (bucket.kind === "unscheduled") return !month;
+    if (bucket.kind === "month") return month === bucket.month;
+    if (bucket.kind === "future") {
+      const visibleMonths = getVisiblePlanningMonths();
+      return month && !visibleMonths.includes(month);
+    }
+    return false;
+  });
+}
+
+function getPlanningBucketSummary(bucket, tasks) {
+  const count = tasks.length;
+  const demand = getPlanningDemand(tasks);
+  const bugs = tasks.filter((task) => normalizeTaskType(task.type).toLowerCase() === "bug").length;
+  const unassigned = tasks.filter((task) => !task.owner.trim()).length;
+  const parts = [`${count} ticket${count === 1 ? "" : "s"}`];
+  if (demand) parts.push(`${demand}d demand`);
+  if (bugs) parts.push(`${bugs} bug${bugs === 1 ? "" : "s"}`);
+  if (unassigned) parts.push(`${unassigned} unassigned`);
+
+  if (bucket.kind === "month") {
+    const capacity = getPlanningMonthCapacity(bucket.month);
+    if (capacity) parts.push(`${Math.round((demand / capacity) * 100)}% cap`);
+  }
+
+  return parts.join(" | ");
+}
+
+function getPlanningDemand(tasks) {
+  return tasks
+    .filter((task) => !isDoneStatus(task.status) && !isMilestoneType(task.type))
+    .reduce((total, task) => total + Math.max(1, Number.parseInt(task.duration, 10) || 1), 0);
+}
+
+function getPlanningMonthCapacity(month) {
+  const owners = getCapacityOwners();
+  if (!owners.length) return 0;
+  const days = getBusinessDaysInMonth(month);
+  return owners.reduce((total, owner) => total + (getOwnerCapacity(owner) * days), 0);
+}
+
+function moveTaskToPlanningBucket(taskId, bucket, month) {
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) return false;
+  const previousMonth = task.planningMonth || "";
+  const previousStatus = task.status;
+
+  if (bucket === "unscheduled") {
+    task.planningMonth = "";
+    if (isDoneStatus(task.status)) task.status = "not-started";
+  } else if (bucket === "month") {
+    task.planningMonth = normalizePlanningMonth(month, "");
+    if (isDoneStatus(task.status)) task.status = "not-started";
+  } else if (bucket === "future") {
+    task.planningMonth = addMonths(toIsoDate(new Date()).slice(0, 7), planningMonthCount);
+    if (isDoneStatus(task.status)) task.status = "not-started";
+  } else if (bucket === "done") {
+    task.status = "done";
+  }
+
+  return previousMonth !== (task.planningMonth || "") || previousStatus !== task.status;
+}
+
+function clearPlanningDropState() {
+  planningBoard.querySelectorAll(".drop-target, .dragging").forEach((item) => {
+    item.classList.remove("drop-target", "dragging");
+  });
+}
+
 function moveTaskToGroup(task, nextGroup, previousGroup) {
   const nextGroupName = normalizeGroupName(nextGroup);
   if (nextGroupName === previousGroup) {
@@ -1997,12 +2493,8 @@ function moveTaskToGroup(task, nextGroup, previousGroup) {
 
 function getDragTargetRow(event) {
   if (!draggedTaskId || draggedGroupName) return null;
-  const row = event.target.closest("tr[data-task-id]");
+  const row = event.target.closest("tr[data-task-id], tr.table-group-row[data-group-name]");
   if (!row || row.dataset.taskId === draggedTaskId) return null;
-
-  const draggedTask = state.tasks.find((task) => task.id === draggedTaskId);
-  if (!draggedTask || normalizeGroupName(draggedTask.group) !== row.dataset.group) return null;
-
   return row;
 }
 
@@ -2024,33 +2516,43 @@ function clearDropIndicators() {
   });
 }
 
-function reorderTaskWithinGroup(sourceId, targetId, position) {
-  if (!sourceId || !targetId || sourceId === targetId) return false;
+function moveDraggedTask(sourceId, targetRow, position) {
+  if (!sourceId || !targetRow) return false;
 
   const sourceTask = state.tasks.find((task) => task.id === sourceId);
-  const targetTask = state.tasks.find((task) => task.id === targetId);
-  if (!sourceTask || !targetTask) return false;
+  if (!sourceTask) return false;
 
-  const groupName = normalizeGroupName(sourceTask.group);
-  if (normalizeGroupName(targetTask.group) !== groupName) return false;
+  const isGroupHeader = targetRow.classList.contains("table-group-row");
+  const targetTaskId = isGroupHeader ? "" : targetRow.dataset.taskId;
+  if (targetTaskId === sourceId) return false;
 
-  const groupTasks = state.tasks.filter((task) => normalizeGroupName(task.group) === groupName);
-  const sourceIndex = groupTasks.findIndex((task) => task.id === sourceId);
-  const targetIndex = groupTasks.findIndex((task) => task.id === targetId);
-  if (sourceIndex < 0 || targetIndex < 0) return false;
+  const targetGroupName = isGroupHeader
+    ? normalizeGroupName(targetRow.dataset.groupName)
+    : normalizeGroupName(state.tasks.find((task) => task.id === targetTaskId)?.group);
+  if (!targetGroupName) return false;
 
-  const reordered = groupTasks.slice();
-  const [movedTask] = reordered.splice(sourceIndex, 1);
-  let insertAt = reordered.findIndex((task) => task.id === targetId);
-  if (position === "after") insertAt += 1;
-  reordered.splice(insertAt, 0, movedTask);
+  const remaining = state.tasks.filter((task) => task.id !== sourceId);
 
-  if (groupTasks.every((task, index) => task.id === reordered[index].id)) return false;
+  let insertAt;
+  if (isGroupHeader) {
+    const firstGroupIndex = remaining.findIndex((task) => normalizeGroupName(task.group) === targetGroupName);
+    insertAt = firstGroupIndex < 0 ? remaining.length : firstGroupIndex;
+  } else {
+    const targetIndex = remaining.findIndex((task) => task.id === targetTaskId);
+    if (targetIndex < 0) return false;
+    insertAt = position === "after" ? targetIndex + 1 : targetIndex;
+  }
 
-  let nextGroupIndex = 0;
-  state.tasks = state.tasks.map((task) => (
-    normalizeGroupName(task.group) === groupName ? reordered[nextGroupIndex++] : task
-  ));
+  const previousGroupName = normalizeGroupName(sourceTask.group);
+  if (previousGroupName !== targetGroupName) {
+    sourceTask.group = targetGroupName === "Ungrouped" ? "" : targetGroupName;
+  }
+
+  remaining.splice(insertAt, 0, sourceTask);
+
+  if (state.tasks.every((task, index) => task.id === remaining[index]?.id)) return false;
+
+  state.tasks = remaining;
   return true;
 }
 
@@ -2663,6 +3165,32 @@ function compareDates(a, b) {
   return a.localeCompare(b);
 }
 
+function normalizePlanningMonth(value, fallbackDate = "") {
+  if (typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return value;
+  return isIsoDate(fallbackDate) ? fallbackDate.slice(0, 7) : "";
+}
+
+function comparePlanningMonths(a, b) {
+  return a.localeCompare(b);
+}
+
+function addMonths(month, count) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, monthIndex - 1 + count, 1));
+  return date.toISOString().slice(0, 7);
+}
+
+function formatPlanningMonth(month) {
+  const date = parseIsoDate(`${month}-01`);
+  return new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function getBusinessDaysInMonth(month) {
+  const start = `${month}-01`;
+  const end = addCalendarDays(`${addMonths(month, 1)}-01`, -1);
+  return countBusinessDays(start, end);
+}
+
 function formatShortDate(isoDate) {
   if (!isIsoDate(isoDate)) return "";
   const date = parseIsoDate(isoDate);
@@ -2708,7 +3236,7 @@ function safeFileName(value) {
 
 function toCsv() {
   const rows = [
-    ["ID", "Task", "Group", "Type", "Owner", "Start", "Duration", "Finish", "Depends On", "Due", "Status", "Notes", "Source", "External ID", "External URL"]
+    ["ID", "Task", "Group", "Type", "Owner", "Planning Month", "Start", "Duration", "Finish", "Depends On", "Due", "Status", "Notes", "Source", "External ID", "External URL"]
   ];
   state.tasks.forEach((task) => {
     rows.push([
@@ -2717,6 +3245,7 @@ function toCsv() {
       task.group,
       getTypeLabel(task.type),
       task.owner,
+      task.planningMonth,
       task.startDate,
       String(task.duration),
       getFinishDate(task),

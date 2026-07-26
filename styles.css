@@ -30,6 +30,10 @@ body {
   color: var(--ink);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 button,
 input,
 select,
@@ -132,6 +136,36 @@ button.danger {
   font-size: 14px;
 }
 
+.zoom-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.zoom-toggle button {
+  min-height: 32px;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.zoom-toggle button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.zoom-toggle button:hover {
+  background: var(--accent-soft);
+}
+
+.zoom-toggle button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(720px, 1fr) 360px;
@@ -203,6 +237,119 @@ button.danger {
   align-items: stretch;
   max-height: calc(100vh - 116px);
   overflow-y: auto;
+}
+
+.planning-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: 10px;
+  max-height: calc(100vh - 116px);
+  overflow: auto;
+  padding: 10px;
+  background: #f6f8fa;
+}
+
+.board-column {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 520px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.board-column.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px rgba(24, 119, 242, 0.14);
+}
+
+.board-column.done {
+  background: #f5fbf7;
+}
+
+.board-column-header {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: #eef4f7;
+}
+
+.board-column-header h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.board-column-header p,
+.board-empty,
+.board-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.board-cards {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.board-card {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 9px;
+  cursor: grab;
+}
+
+.board-card.dragging {
+  opacity: 0.55;
+}
+
+.board-card.has-warning {
+  border-color: #e8a3a3;
+  background: #fff8f8;
+}
+
+.board-card.done {
+  opacity: 0.72;
+}
+
+.board-card h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.board-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.board-pill {
+  display: inline-flex;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #eef3f6;
+  color: var(--muted);
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-pill.warning {
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .table-wrap {
@@ -317,6 +464,11 @@ body.resizing-board {
   border-bottom: 2px solid var(--accent);
 }
 
+.task-table tr.table-group-row.drop-before td {
+  background: var(--accent-soft);
+  border-top: 2px solid var(--accent);
+}
+
 .table-group-row td {
   background: #eef4f7;
   color: var(--ink);
@@ -357,20 +509,59 @@ body.resizing-board {
 }
 
 .table-group-row .group-toggle {
+  width: 20px;
+  min-width: 20px;
   min-height: 26px;
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 0 4px;
+  padding: 0;
   font-size: inherit;
   font-weight: inherit;
   text-transform: inherit;
+  text-align: center;
   cursor: pointer;
 }
 
 .table-group-row .group-toggle:hover,
 .table-group-row .group-toggle:focus-visible {
   color: var(--accent-dark);
+}
+
+.table-group-row .group-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  padding: 0 4px;
+}
+
+.table-group-row .group-name-input:hover,
+.table-group-row .group-name-input:focus {
+  border-color: var(--accent);
+  background: #fff;
+}
+
+.table-group-row .group-count {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: none;
+  font-size: 11px;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+
+.table-group-row .group-rollup-cell {
+  font-weight: 700;
+  text-transform: none;
 }
 
 .task-table .id-col {
@@ -567,11 +758,34 @@ body.resizing-board {
 .group-summary-bar {
   grid-row: 1 / span 2;
   align-self: center;
-  height: 6px;
+  position: relative;
+  height: 10px;
   border-radius: 999px;
   background: var(--accent-dark);
   opacity: 0.72;
   z-index: 3;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.group-summary-bar:hover {
+  opacity: 0.9;
+}
+
+.group-summary-bar.dragging {
+  cursor: grabbing;
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.group-summary-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--green);
 }
 
 .gantt-label {
@@ -636,7 +850,7 @@ body.resizing-board {
 
 .month-cell {
   grid-row: 1;
-  min-width: 28px;
+  min-width: var(--gantt-col-w, 28px);
   padding: 5px 8px 4px;
   border-right: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line);
@@ -653,13 +867,20 @@ body.resizing-board {
 
 .axis-cell {
   grid-row: 2;
-  min-width: 28px;
+  min-width: var(--gantt-col-w, 28px);
   padding: 6px 2px;
   border-right: 1px solid var(--line);
   text-align: center;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.axis-cell.week-cell {
+  font-weight: 700;
 }
 
 .axis-cell.weekend,
@@ -674,7 +895,7 @@ body.resizing-board {
 
 .day-cell {
   grid-row: 1;
-  min-width: 28px;
+  min-width: var(--gantt-col-w, 28px);
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   height: 100%;
@@ -1286,6 +1507,11 @@ body.resizing-board {
     grid-template-columns: 1fr;
     max-height: none;
     overflow-y: visible;
+  }
+
+  .planning-board {
+    grid-auto-columns: minmax(260px, 82vw);
+    max-height: none;
   }
 
   .board-resizer {
