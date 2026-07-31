@@ -143,6 +143,14 @@ function renderGantt(analysis) {
     });
   });
 
+  const todayIndex = days.indexOf(toIsoDate(new Date()));
+  if (todayIndex >= 0) {
+    const todayLine = document.createElement("div");
+    todayLine.className = "gantt-today-line";
+    todayLine.style.left = `${todayIndex * dayWidth}px`;
+    inner.append(todayLine);
+  }
+
   gantt.append(inner);
 }
 

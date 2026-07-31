@@ -442,6 +442,12 @@ function moveDraggedTask(sourceId, targetRow, position) {
   const previousGroupName = normalizeGroupName(sourceTask.group);
   if (previousGroupName !== targetGroupName) {
     sourceTask.group = targetGroupName === "Ungrouped" ? "" : targetGroupName;
+
+    const targetGroupRollup = getGroupRollup(remaining.filter((task) => normalizeGroupName(task.group) === targetGroupName));
+    if (targetGroupRollup.range) {
+      sourceTask.startDate = targetGroupRollup.range.start;
+      sourceTask.planningMonth = sourceTask.startDate.slice(0, 7);
+    }
   }
 
   remaining.splice(insertAt, 0, sourceTask);
@@ -449,6 +455,7 @@ function moveDraggedTask(sourceId, targetRow, position) {
   if (state.tasks.every((task, index) => task.id === remaining[index]?.id)) return false;
 
   state.tasks = remaining;
+  if (previousGroupName !== targetGroupName) autoSchedule();
   return true;
 }
 

@@ -722,7 +722,18 @@ body.resizing-board {
 }
 
 .gantt-inner {
+  position: relative;
   min-width: 980px;
+}
+
+.gantt-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--today);
+  z-index: 6;
+  pointer-events: none;
 }
 
 .gantt-header,

@@ -588,14 +588,11 @@ function applyDevopsUpdate(item) {
       if (candidate.dependsOn === previousTaskId) candidate.dependsOn = task.taskId;
     });
   }
-  task.name = item.title;
-  task.type = normalizeTaskType(item.workItemType || item.suggestedType || task.type);
-  if (isMilestoneType(task.type)) task.duration = 1;
-  task.owner = item.assignedTo || "";
-  task.parentId = item.parentId || "";
-  if (item.parentId) task.group = `#${item.parentId} ${item.parentTitle || ""}`.trim();
-  if (item.dueDate) task.dueDate = item.dueDate;
+  // Once a task is imported, the plan owns name/type/group/dates - resyncing only pulls
+  // status and owner, since those are the fields DevOps stays authoritative on. The rest
+  // is metadata needed to keep sync/linking working, not plan content.
   task.status = getDevopsStatus(item.state);
+  task.owner = item.assignedTo || "";
   task.externalUrl = item.url;
   task.externalSignature = item.signature;
   task.externalChangedDate = item.changedDate;

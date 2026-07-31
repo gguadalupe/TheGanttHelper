@@ -182,7 +182,7 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
     id: makeId(),
     taskId: getNextTaskId(),
     name: "New task",
-    group: lastTask ? lastTask.group : "",
+    group: "New Tasks",
     type: "task",
     owner: "",
     startDate,
