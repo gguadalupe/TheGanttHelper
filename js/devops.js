@@ -116,6 +116,7 @@ function renderDevopsInboxItem(item) {
   } else if (item.status === "changed") {
     controls.append(
       inboxAction("Apply update", "update", item.externalId, "primary"),
+      inboxAction("Reset name", "resetName", item.externalId),
       inboxAction("Ignore", "ignore", item.externalId)
     );
   } else if (item.status === "ignored") {
@@ -124,7 +125,7 @@ function renderDevopsInboxItem(item) {
     const imported = document.createElement("span");
     imported.className = "inbox-badge";
     imported.textContent = "Already in plan";
-    controls.append(imported);
+    controls.append(imported, inboxAction("Reset name", "resetName", item.externalId));
   }
 
   row.append(main, controls);
@@ -588,9 +589,10 @@ function applyDevopsUpdate(item) {
       if (candidate.dependsOn === previousTaskId) candidate.dependsOn = task.taskId;
     });
   }
-  // Once a task is imported, the plan owns name/type/group/dates - resyncing only pulls
-  // status and owner, since those are the fields DevOps stays authoritative on. The rest
-  // is metadata needed to keep sync/linking working, not plan content.
+  // Once a task is imported, the plan owns type/group/dates - resyncing only pulls
+  // title, status, and owner, since those are the fields DevOps stays authoritative on.
+  // The rest is metadata needed to keep sync/linking working, not plan content.
+  task.name = item.title;
   task.status = getDevopsStatus(item.state);
   task.owner = item.assignedTo || "";
   task.externalUrl = item.url;
@@ -598,6 +600,12 @@ function applyDevopsUpdate(item) {
   task.externalChangedDate = item.changedDate;
   item.status = "imported";
   item.localTaskId = task.id;
+}
+
+function resetDevopsTaskName(item) {
+  const task = state.tasks.find((candidate) => candidate.source === "azure-devops" && String(candidate.externalId) === String(item.externalId));
+  if (!task) return;
+  task.name = item.title;
 }
 
 function ignoreDevopsItem(item) {

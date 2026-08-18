@@ -28,6 +28,28 @@ const statusOptions = [
   ["done", "Done"]
 ];
 
+// Ticket duration/estimates aren't reliably filled in, so progress is tracked by workflow
+// status instead: each raw DevOps state maps to how far through the pipeline it represents.
+const STATUS_PROGRESS_FACTORS = {
+  "new": 0,
+  "in analysis": 0.25,
+  "architectural review": 0.25,
+  "ready for dev": 0.25,
+  "in dev": 0.5,
+  "ready for peer review": 0.75,
+  "in peer review": 0.75,
+  "peer review completed": 0.75,
+  "ready for testing": 0.95,
+  "in testing": 0.95,
+  "ready for uat": 0.95,
+  "in uat": 0.95,
+  "ready for approval": 0.95,
+  "in approval": 0.95,
+  "ready for release": 1,
+  "closed": 1,
+  "removed": 1
+};
+
 const typeOptions = [
   ["task", "Task"],
   ["milestone", "Milestone"],

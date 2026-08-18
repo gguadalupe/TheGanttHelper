@@ -126,8 +126,34 @@ function renderTable(analysis) {
   }
 
   const warningsByTask = groupWarningsByTask(analysis.warnings);
+  const taskGroups = getTaskGroups();
+  const projectRollup = getGroupRollup(state.tasks);
+  const allGroupsCollapsed = taskGroups.length > 0 && taskGroups.every((group) => isGroupCollapsed(group.name));
 
-  getTaskGroups().forEach((group) => {
+  const projectRow = document.createElement("tr");
+  projectRow.className = "table-group-row table-project-row";
+  projectRow.append(
+    groupEmptyCell("id"),
+    projectTitleCell(state.tasks.length, allGroupsCollapsed),
+    groupEmptyCell("group"),
+    groupEmptyCell("type"),
+    groupEmptyCell("owner"),
+    groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.start) : "", "start"),
+    groupRollupCell(projectRollup.range ? `${projectRollup.businessDays}d` : "", "duration"),
+    groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.end) : "", "finish"),
+    groupEmptyCell("dependsOn"),
+    groupEmptyCell("due"),
+    groupRollupCell(
+      projectRollup.totalCount ? `${projectRollup.progressPercent}%` : "",
+      "status",
+      projectRollup.totalCount ? `${projectRollup.doneCount}/${projectRollup.totalCount} done` : ""
+    ),
+    groupEmptyCell("notes"),
+    groupEmptyCell("actions")
+  );
+  taskTableBody.append(projectRow);
+
+  taskGroups.forEach((group) => {
     const collapsed = isGroupCollapsed(group.name);
     const rollup = getGroupRollup(group.tasks);
     const groupRow = document.createElement("tr");
@@ -144,7 +170,11 @@ function renderTable(analysis) {
       groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
       groupEmptyCell("dependsOn"),
       groupEmptyCell("due"),
-      groupRollupCell(rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : "", "status"),
+      groupRollupCell(
+        rollup.totalCount ? `${rollup.progressPercent}%` : "",
+        "status",
+        rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : ""
+      ),
       groupEmptyCell("notes"),
       groupEmptyCell("actions")
     );
@@ -234,6 +264,29 @@ function groupNameInput(groupName) {
   return input;
 }
 
+function projectTitleCell(taskCount, collapsed) {
+  const cell = document.createElement("td");
+  cell.dataset.column = "title";
+  const wrapper = document.createElement("div");
+  wrapper.className = "group-header-cell project-header-cell";
+
+  const toggle = document.createElement("button");
+  toggle.className = "group-toggle";
+  toggle.type = "button";
+  toggle.dataset.toggleAllGroups = "1";
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  toggle.setAttribute("aria-label", collapsed ? "Expand all groups" : "Collapse all groups");
+  toggle.textContent = collapsed ? "+" : "-";
+
+  const name = document.createElement("strong");
+  name.className = "project-name-label";
+  name.textContent = state.projectName || "Project";
+
+  wrapper.append(toggle, name, groupCountBadge(taskCount));
+  cell.append(wrapper);
+  return cell;
+}
+
 function groupCountBadge(taskCount) {
   const span = document.createElement("span");
   span.className = "group-count";
@@ -241,11 +294,12 @@ function groupCountBadge(taskCount) {
   return span;
 }
 
-function groupRollupCell(value, column) {
+function groupRollupCell(value, column, title = "") {
   const cell = document.createElement("td");
   cell.dataset.column = column;
   cell.className = "group-rollup-cell";
   cell.textContent = value;
+  if (title) cell.title = title;
   return cell;
 }
 

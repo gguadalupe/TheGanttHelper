@@ -218,6 +218,18 @@ button.danger {
   line-height: 1.2;
 }
 
+.heading-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.heading-title button {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .section-heading p {
   margin: 0;
   color: var(--muted);
@@ -478,6 +490,16 @@ body.resizing-board {
   letter-spacing: 0;
   padding: 0 6px;
   height: 34px;
+}
+
+.table-project-row td {
+  background: #dfe7ec;
+  border-bottom: 2px solid var(--accent-dark);
+}
+
+.project-name-label {
+  flex: 1;
+  min-width: 0;
 }
 
 .table-group-row .group-header-cell {
@@ -764,6 +786,29 @@ body.resizing-board {
 .gantt-group-row .gantt-label strong {
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.gantt-project-row .gantt-label,
+.gantt-project-row .group-track {
+  background: #dfe7ec;
+  border-bottom: 2px solid var(--accent-dark);
+}
+
+.gantt-project-row .gantt-label strong {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.project-summary-bar {
+  grid-row: 1 / span 2;
+  align-self: center;
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--accent-dark);
+  z-index: 3;
+  overflow: hidden;
 }
 
 .group-summary-bar {

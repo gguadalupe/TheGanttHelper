@@ -57,13 +57,44 @@ function renderGantt(analysis) {
   inner.append(header);
 
   const warningTasks = groupWarningsByTask(analysis.warnings);
+  const taskGroups = getTaskGroups();
+  const projectRollup = getGroupRollup(state.tasks);
 
-  getTaskGroups().forEach((group) => {
+  const projectRow = document.createElement("div");
+  projectRow.className = "gantt-group-row gantt-project-row";
+  projectRow.append(labelCell(
+    state.projectName || "Project",
+    projectRollup.totalCount ? `${projectRollup.progressPercent}% · ${projectRollup.doneCount}/${projectRollup.totalCount} done` : "0 tasks"
+  ));
+
+  const projectTrack = document.createElement("div");
+  projectTrack.className = "track group-track";
+  projectTrack.style.gridTemplateColumns = columnsTemplate;
+  if (projectRollup.range) {
+    const startIndex = days.indexOf(projectRollup.range.start);
+    const endIndex = days.indexOf(projectRollup.range.end);
+    if (startIndex >= 0 && endIndex >= 0) {
+      const summary = document.createElement("div");
+      summary.className = "project-summary-bar";
+      summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
+      summary.title = `${state.projectName || "Project"}: ${formatShortDate(projectRollup.range.start)} to ${formatShortDate(projectRollup.range.end)} - ${projectRollup.progressPercent}% complete`;
+
+      const fill = document.createElement("div");
+      fill.className = "group-summary-fill";
+      fill.style.width = `${projectRollup.progressPercent}%`;
+      summary.append(fill);
+      projectTrack.append(summary);
+    }
+  }
+  projectRow.append(projectTrack);
+  inner.append(projectRow);
+
+  taskGroups.forEach((group) => {
     const collapsed = isGroupCollapsed(group.name);
     const rollup = getGroupRollup(group.tasks);
     const row = document.createElement("div");
     row.className = "gantt-group-row";
-    row.append(labelCell(group.name, rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : "0 tasks"));
+    row.append(labelCell(group.name, rollup.totalCount ? `${rollup.progressPercent}% · ${rollup.doneCount}/${rollup.totalCount} done` : "0 tasks"));
 
     const track = document.createElement("div");
     track.className = "track group-track";
@@ -77,11 +108,11 @@ function renderGantt(analysis) {
         summary.className = "group-summary-bar";
         summary.dataset.groupName = group.name;
         summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
-        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)} (drag to reschedule)`;
+        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)} - ${rollup.progressPercent}% complete (drag to reschedule)`;
 
         const fill = document.createElement("div");
         fill.className = "group-summary-fill";
-        fill.style.width = `${rollup.totalCount ? Math.round((rollup.doneCount / rollup.totalCount) * 100) : 0}%`;
+        fill.style.width = `${rollup.progressPercent}%`;
         summary.append(fill);
 
         track.append(summary);

@@ -11,6 +11,7 @@ const ganttZoomToggle = document.querySelector("#ganttZoomToggle");
 const openDevopsBtn = document.querySelector("#openDevopsBtn");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
+const toggleAllGroupsBtn = document.querySelector("#toggleAllGroupsBtn");
 const projectSummary = document.querySelector("#projectSummary");
 const timelineSummary = document.querySelector("#timelineSummary");
 const taskTableBody = document.querySelector("#taskTableBody");
@@ -65,6 +66,7 @@ function render() {
   projectNameInput.value = state.projectName;
   renderViewToggle();
   renderChecksToggle(analysis);
+  renderGroupsToggle();
   renderDevopsButton();
   renderSummary(analysis);
   renderTable(analysis);
@@ -140,10 +142,19 @@ function renderChecksToggle(analysis = analyzeTasks()) {
       : "Show checks";
 }
 
+function renderGroupsToggle() {
+  const groupNames = getTaskGroups().map((group) => group.name);
+  toggleAllGroupsBtn.hidden = !groupNames.length;
+  const allCollapsed = groupNames.length > 0 && groupNames.every((name) => isGroupCollapsed(name));
+  toggleAllGroupsBtn.textContent = allCollapsed ? "Expand all" : "Collapse all";
+  toggleAllGroupsBtn.setAttribute("aria-expanded", String(!allCollapsed));
+}
+
 function renderSummary(analysis) {
   const taskCount = state.tasks.length;
   const finish = analysis.projectFinish ? formatShortDate(analysis.projectFinish) : "No finish date";
-  projectSummary.textContent = `${taskCount} task${taskCount === 1 ? "" : "s"} | Finish ${finish}`;
+  const progress = taskCount ? ` | ${getGroupRollup(state.tasks).progressPercent}% complete` : "";
+  projectSummary.textContent = `${taskCount} task${taskCount === 1 ? "" : "s"}${progress} | Finish ${finish}`;
   timelineSummary.textContent = analysis.range
     ? `${formatShortDate(analysis.range.start)} to ${formatShortDate(analysis.range.end)}`
     : "No timeline yet";
@@ -274,6 +285,16 @@ toggleChecksBtn.addEventListener("click", () => {
   localStorage.setItem(CHECKS_VISIBLE_KEY, String(checksVisible));
   renderChecksToggle();
 });
+
+toggleAllGroupsBtn.addEventListener("click", toggleAllGroups);
+
+function toggleAllGroups() {
+  const groupNames = getTaskGroups().map((group) => group.name);
+  const allCollapsed = groupNames.length > 0 && groupNames.every((name) => isGroupCollapsed(name));
+  collapsedGroups = allCollapsed ? new Set() : new Set(groupNames.map(normalizeGroupName));
+  saveCollapsedGroups();
+  render();
+}
 
 openColumnsBtn.addEventListener("click", () => {
   renderColumnsPanel();
@@ -426,6 +447,8 @@ devopsInboxList.addEventListener("click", (event) => {
   } else if (action === "update") {
     applyDevopsUpdate(inboxItem);
     orderTasksByDependencies();
+  } else if (action === "resetName") {
+    resetDevopsTaskName(inboxItem);
   } else if (action === "ignore") {
     ignoreDevopsItem(inboxItem);
   } else if (action === "unignore") {
@@ -534,6 +557,11 @@ taskTableBody.addEventListener("change", (event) => {
 });
 
 taskTableBody.addEventListener("click", (event) => {
+  if (event.target.closest("[data-toggle-all-groups]")) {
+    toggleAllGroups();
+    return;
+  }
+
   const groupName = event.target.closest("[data-toggle-group]")?.dataset.toggleGroup;
   if (groupName) {
     toggleTaskGroup(groupName);

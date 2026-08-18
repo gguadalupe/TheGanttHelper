@@ -161,6 +161,14 @@ function isInProgressStatus(value) {
   return ["active", "committed", "in progress", "doing", "in-progress"].includes(normalizeTaskStatus(value).toLowerCase());
 }
 
+function getStatusProgressFactor(value) {
+  const key = normalizeTaskStatus(value).toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(STATUS_PROGRESS_FACTORS, key)) return STATUS_PROGRESS_FACTORS[key];
+  if (isDoneStatus(value)) return 1;
+  if (isInProgressStatus(value)) return 0.5;
+  return 0;
+}
+
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
@@ -184,6 +192,9 @@ function getGroupRollup(tasks) {
   const range = getGroupDateRange(tasks);
   const doneCount = tasks.filter((task) => isDoneStatus(task.status)).length;
   const inProgressCount = tasks.filter((task) => isInProgressStatus(task.status)).length;
+  const progressPercent = tasks.length
+    ? Math.round((tasks.reduce((sum, task) => sum + getStatusProgressFactor(task.status), 0) / tasks.length) * 100)
+    : 0;
 
   let status = "not-started";
   if (tasks.length && doneCount === tasks.length) status = "done";
@@ -194,6 +205,7 @@ function getGroupRollup(tasks) {
     businessDays: range ? countBusinessDays(range.start, range.end) : 0,
     doneCount,
     totalCount: tasks.length,
+    progressPercent,
     status
   };
 }
