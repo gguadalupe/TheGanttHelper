@@ -510,11 +510,32 @@ function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
     parentTitle,
     dueDate: getDevopsDueDate(fields),
     url: `${getDevopsProjectUrl(config)}/_workitems/edit/${externalId}`,
-    suggestedGroup: parentId ? `#${parentId} ${parentTitle}`.trim() : (getPathLeaf(fields["System.AreaPath"]) || getLastGroupName()),
+    suggestedGroup: buildDevopsSuggestedGroup(fields, config, parentId, parentTitle),
     suggestedType: getDevopsTaskType(fields["System.WorkItemType"], title)
   };
   mapped.signature = getDevopsSignature(mapped);
   return mapped;
+}
+
+// Area Path is itself a \-delimited hierarchy (e.g. "Project\Team\Component") and its
+// first segment is conventionally the project name, which is redundant here since the
+// sync is already scoped to one project. The parent segment only ever adds one extra
+// level - fetchDevopsParentTitles resolves a single immediate parent, not a full
+// ancestor chain - so nesting stops at Area Path + immediate parent, not the full
+// DevOps work item tree.
+function buildDevopsSuggestedGroup(fields, config, parentId, parentTitle) {
+  const areaSegments = getDevopsAreaPathSegments(fields["System.AreaPath"], config.project);
+  const parentSegment = parentId ? `#${parentId} ${parentTitle}`.trim() : "";
+  const segments = [...areaSegments, parentSegment].filter(Boolean);
+  return segments.length ? segments.join(GROUP_PATH_SEPARATOR) : getLastGroupName();
+}
+
+function getDevopsAreaPathSegments(areaPath, projectName) {
+  const segments = String(areaPath || "").split("\\").map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length && String(projectName || "").trim().toLowerCase() === segments[0].toLowerCase()) {
+    segments.shift();
+  }
+  return segments;
 }
 
 function mergeDevopsInbox(items) {

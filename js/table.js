@@ -96,16 +96,16 @@ function saveCollapsedGroups() {
   localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(Array.from(collapsedGroups)));
 }
 
-function isGroupCollapsed(groupName) {
-  return collapsedGroups.has(normalizeGroupName(groupName));
+function isGroupCollapsed(groupPath) {
+  return collapsedGroups.has(normalizeGroupName(groupPath));
 }
 
-function toggleTaskGroup(groupName) {
-  const normalizedGroup = normalizeGroupName(groupName);
-  if (collapsedGroups.has(normalizedGroup)) {
-    collapsedGroups.delete(normalizedGroup);
+function toggleTaskGroup(groupPath) {
+  const normalizedPath = normalizeGroupName(groupPath);
+  if (collapsedGroups.has(normalizedPath)) {
+    collapsedGroups.delete(normalizedPath);
   } else {
-    collapsedGroups.add(normalizedGroup);
+    collapsedGroups.add(normalizedPath);
   }
   saveCollapsedGroups();
   render();
@@ -126,9 +126,10 @@ function renderTable(analysis) {
   }
 
   const warningsByTask = groupWarningsByTask(analysis.warnings);
-  const taskGroups = getTaskGroups();
+  const tree = getTaskGroupTree();
   const projectRollup = getGroupRollup(state.tasks);
-  const allGroupsCollapsed = taskGroups.length > 0 && taskGroups.every((group) => isGroupCollapsed(group.name));
+  const rootGroupPaths = getRootGroupPaths();
+  const allGroupsCollapsed = rootGroupPaths.length > 0 && rootGroupPaths.every((path) => isGroupCollapsed(path));
 
   const projectRow = document.createElement("tr");
   projectRow.className = "table-group-row table-project-row";
@@ -153,114 +154,130 @@ function renderTable(analysis) {
   );
   taskTableBody.append(projectRow);
 
-  taskGroups.forEach((group) => {
-    const collapsed = isGroupCollapsed(group.name);
-    const rollup = getGroupRollup(group.tasks);
-    const groupRow = document.createElement("tr");
-    groupRow.className = "table-group-row";
-    groupRow.dataset.groupName = group.name;
-    groupRow.append(
-      groupEmptyCell("id"),
-      groupTitleCell(group.name, group.tasks.length, collapsed),
-      groupEmptyCell("group"),
-      groupEmptyCell("type"),
-      groupEmptyCell("owner"),
-      groupStartDateCell(group.name, rollup),
-      groupRollupCell(rollup.range ? `${rollup.businessDays}d` : "", "duration"),
-      groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
-      groupEmptyCell("dependsOn"),
-      groupEmptyCell("due"),
-      groupRollupCell(
-        rollup.totalCount ? `${rollup.progressPercent}%` : "",
-        "status",
-        rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : ""
-      ),
-      groupEmptyCell("notes"),
-      groupEmptyCell("actions")
-    );
-    taskTableBody.append(groupRow);
-
-    if (collapsed) return;
-
-    group.tasks.forEach((task) => {
-      const row = document.createElement("tr");
-      row.dataset.taskId = task.id;
-      row.dataset.group = normalizeGroupName(task.group);
-      row.className = [
-        warningsByTask.has(task.id) ? "has-warning" : "",
-        isDoneStatus(task.status) ? "done" : "",
-        isMilestoneType(task.type) ? "milestone-task" : ""
-      ].filter(Boolean).join(" ");
-
-      row.append(
-        inputCell(task, "taskId", "text", "id"),
-        taskNameCell(task, warningsByTask.get(task.id) || []),
-        inputCell(task, "group", "text", "group"),
-        typeCell(task),
-        inputCell(task, "owner", "text", "owner"),
-        inputCell(task, "startDate", "date", "start"),
-        inputCell(task, "duration", "number", "duration"),
-        readOnlyCell(getFinishDate(task), "finish"),
-        inputCell(task, "dependsOn", "text", "dependsOn"),
-        inputCell(task, "dueDate", "date", "due"),
-        statusCell(task),
-        inputCell(task, "notes", "text", "notes"),
-        deleteCell(task)
-      );
-
-      taskTableBody.append(row);
-    });
-  });
+  renderTableGroupEntries(tree.entries, 0, "", warningsByTask);
 
   applyTableColumnSettings();
 }
 
-function groupTitleCell(groupName, taskCount, collapsed) {
+function renderTableGroupEntries(entries, depth, parentPath, warningsByTask) {
+  entries.forEach((entry) => {
+    if (entry.type === "task") {
+      renderTaskRow(entry.task, warningsByTask);
+    } else {
+      renderGroupRow(entry.node, depth, parentPath, warningsByTask);
+    }
+  });
+}
+
+function renderGroupRow(node, depth, parentPath, warningsByTask) {
+  const collapsed = isGroupCollapsed(node.path);
+  const nodeTasks = getGroupNodeTasks(node);
+  const rollup = getGroupRollup(nodeTasks);
+  const groupRow = document.createElement("tr");
+  groupRow.className = "table-group-row";
+  groupRow.dataset.groupName = node.path;
+  groupRow.dataset.groupParentPath = parentPath;
+  groupRow.append(
+    groupEmptyCell("id"),
+    groupTitleCell(node, nodeTasks.length, collapsed, depth),
+    groupEmptyCell("group"),
+    groupEmptyCell("type"),
+    groupEmptyCell("owner"),
+    groupStartDateCell(node.path, rollup),
+    groupRollupCell(rollup.range ? `${rollup.businessDays}d` : "", "duration"),
+    groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
+    groupEmptyCell("dependsOn"),
+    groupEmptyCell("due"),
+    groupRollupCell(
+      rollup.totalCount ? `${rollup.progressPercent}%` : "",
+      "status",
+      rollup.totalCount ? `${rollup.doneCount}/${rollup.totalCount} done` : ""
+    ),
+    groupEmptyCell("notes"),
+    groupEmptyCell("actions")
+  );
+  taskTableBody.append(groupRow);
+
+  if (collapsed) return;
+  renderTableGroupEntries(node.entries, depth + 1, node.path, warningsByTask);
+}
+
+function renderTaskRow(task, warningsByTask) {
+  const row = document.createElement("tr");
+  row.dataset.taskId = task.id;
+  row.dataset.group = normalizeGroupName(task.group);
+  row.className = [
+    warningsByTask.has(task.id) ? "has-warning" : "",
+    isDoneStatus(task.status) ? "done" : "",
+    isMilestoneType(task.type) ? "milestone-task" : ""
+  ].filter(Boolean).join(" ");
+
+  row.append(
+    inputCell(task, "taskId", "text", "id"),
+    taskNameCell(task, warningsByTask.get(task.id) || []),
+    inputCell(task, "group", "text", "group"),
+    typeCell(task),
+    inputCell(task, "owner", "text", "owner"),
+    inputCell(task, "startDate", "date", "start"),
+    inputCell(task, "duration", "number", "duration"),
+    readOnlyCell(getFinishDate(task), "finish"),
+    inputCell(task, "dependsOn", "text", "dependsOn"),
+    inputCell(task, "dueDate", "date", "due"),
+    statusCell(task),
+    inputCell(task, "notes", "text", "notes"),
+    deleteCell(task)
+  );
+
+  taskTableBody.append(row);
+}
+
+function groupTitleCell(node, taskCount, collapsed, depth) {
   const cell = document.createElement("td");
   cell.dataset.column = "title";
   const wrapper = document.createElement("div");
   wrapper.className = "group-header-cell";
+  wrapper.style.setProperty("--depth", String(depth));
   wrapper.append(
-    groupDragHandle(groupName),
-    groupToggleButton(groupName, collapsed),
-    groupNameInput(groupName),
+    groupDragHandle(node),
+    groupToggleButton(node.path, collapsed),
+    groupNameInput(node.path),
     groupCountBadge(taskCount)
   );
   cell.append(wrapper);
   return cell;
 }
 
-function groupDragHandle(groupName) {
+function groupDragHandle(node) {
   const handle = document.createElement("button");
   handle.className = "group-drag-handle";
   handle.type = "button";
   handle.draggable = true;
-  handle.dataset.dragGroupName = groupName;
+  handle.dataset.dragGroupName = node.path;
   handle.title = "Drag to reorder this group";
-  handle.setAttribute("aria-label", `Reorder group ${groupName}`);
+  handle.setAttribute("aria-label", `Reorder group ${node.path}`);
   handle.textContent = "::";
   return handle;
 }
 
-function groupToggleButton(groupName, collapsed) {
+function groupToggleButton(groupPath, collapsed) {
   const button = document.createElement("button");
   button.className = "group-toggle";
   button.type = "button";
-  button.dataset.toggleGroup = groupName;
+  button.dataset.toggleGroup = groupPath;
   button.setAttribute("aria-expanded", String(!collapsed));
-  button.setAttribute("aria-label", collapsed ? `Expand ${groupName}` : `Collapse ${groupName}`);
+  button.setAttribute("aria-label", collapsed ? `Expand ${groupPath}` : `Collapse ${groupPath}`);
   button.textContent = collapsed ? "+" : "-";
   return button;
 }
 
-function groupNameInput(groupName) {
+function groupNameInput(groupPath) {
   const input = document.createElement("input");
   input.className = "group-name-input";
   input.type = "text";
-  input.value = groupName;
-  input.dataset.renameGroup = groupName;
-  input.setAttribute("aria-label", "Group name");
-  input.title = "Rename this group (updates every task in it)";
+  input.value = groupPath;
+  input.dataset.renameGroup = groupPath;
+  input.setAttribute("aria-label", "Group path");
+  input.title = "Rename this group. Use \" / \" to nest it under (or move it under) another group.";
   return input;
 }
 
@@ -452,6 +469,7 @@ function getGroupDragTargetRow(event) {
   if (!draggedGroupName) return null;
   const row = event.target.closest("tr.table-group-row[data-group-name]");
   if (!row || row.dataset.groupName === draggedGroupName) return null;
+  if (row.dataset.groupParentPath !== draggedGroupParentPath) return null;
   return row;
 }
 
@@ -485,7 +503,7 @@ function moveDraggedTask(sourceId, targetRow, position) {
 
   let insertAt;
   if (isGroupHeader) {
-    const firstGroupIndex = remaining.findIndex((task) => normalizeGroupName(task.group) === targetGroupName);
+    const firstGroupIndex = remaining.findIndex((task) => isGroupPathOrDescendant(task.group, targetGroupName));
     insertAt = firstGroupIndex < 0 ? remaining.length : firstGroupIndex;
   } else {
     const targetIndex = remaining.findIndex((task) => task.id === targetTaskId);
@@ -497,7 +515,7 @@ function moveDraggedTask(sourceId, targetRow, position) {
   if (previousGroupName !== targetGroupName) {
     sourceTask.group = targetGroupName === "Ungrouped" ? "" : targetGroupName;
 
-    const targetGroupRollup = getGroupRollup(remaining.filter((task) => normalizeGroupName(task.group) === targetGroupName));
+    const targetGroupRollup = getGroupRollup(remaining.filter((task) => isGroupPathOrDescendant(task.group, targetGroupName)));
     if (targetGroupRollup.range) {
       sourceTask.startDate = targetGroupRollup.range.start;
       sourceTask.planningMonth = sourceTask.startDate.slice(0, 7);
@@ -513,25 +531,36 @@ function moveDraggedTask(sourceId, targetRow, position) {
   return true;
 }
 
-function reorderGroup(sourceGroupName, targetGroupName, position) {
-  const sourceName = normalizeGroupName(sourceGroupName);
-  const targetName = normalizeGroupName(targetGroupName);
-  if (!sourceName || !targetName || sourceName === targetName) return false;
+function findGroupEntryLocation(entries, path) {
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.type !== "group") continue;
+    if (entry.node.path === path) return { entries, index };
+    const found = findGroupEntryLocation(entry.node.entries, path);
+    if (found) return found;
+  }
+  return null;
+}
 
-  const groups = getTaskGroups();
-  const sourceIndex = groups.findIndex((group) => group.name === sourceName);
-  const targetIndex = groups.findIndex((group) => group.name === targetName);
-  if (sourceIndex < 0 || targetIndex < 0) return false;
+function reorderGroup(sourceGroupPath, targetGroupPath, position) {
+  const sourcePath = normalizeGroupName(sourceGroupPath);
+  const targetPath = normalizeGroupName(targetGroupPath);
+  if (!sourcePath || !targetPath || sourcePath === targetPath) return false;
 
-  const reorderedGroups = groups.slice();
-  const [movedGroup] = reorderedGroups.splice(sourceIndex, 1);
-  let insertAt = reorderedGroups.findIndex((group) => group.name === targetName);
+  const tree = getTaskGroupTree();
+  const sourceLocation = findGroupEntryLocation(tree.entries, sourcePath);
+  const targetLocation = findGroupEntryLocation(tree.entries, targetPath);
+  if (!sourceLocation || !targetLocation || sourceLocation.entries !== targetLocation.entries) return false;
+
+  const parentEntries = sourceLocation.entries;
+  const targetEntry = targetLocation.entries[targetLocation.index];
+  const [movedEntry] = parentEntries.splice(sourceLocation.index, 1);
+  let insertAt = parentEntries.indexOf(targetEntry);
+  if (insertAt < 0) return false;
   if (position === "after") insertAt += 1;
-  reorderedGroups.splice(insertAt, 0, movedGroup);
+  parentEntries.splice(insertAt, 0, movedEntry);
 
-  if (groups.every((group, index) => group.name === reorderedGroups[index].name)) return false;
-
-  state.tasks = reorderedGroups.flatMap((group) => group.tasks);
+  state.tasks = flattenGroupEntries(tree.entries);
   return true;
 }
 

@@ -49,6 +49,7 @@ let currentZoom = loadGanttZoom();
 let planningMonthCount = loadPlanningMonthCount();
 let draggedTaskId = "";
 let draggedGroupName = "";
+let draggedGroupParentPath = "";
 let draggedBoardTaskId = "";
 let boardResizeActive = false;
 let groupBarDrag = null;
@@ -143,9 +144,9 @@ function renderChecksToggle(analysis = analyzeTasks()) {
 }
 
 function renderGroupsToggle() {
-  const groupNames = getTaskGroups().map((group) => group.name);
-  toggleAllGroupsBtn.hidden = !groupNames.length;
-  const allCollapsed = groupNames.length > 0 && groupNames.every((name) => isGroupCollapsed(name));
+  const rootGroupPaths = getRootGroupPaths();
+  toggleAllGroupsBtn.hidden = !rootGroupPaths.length;
+  const allCollapsed = rootGroupPaths.length > 0 && rootGroupPaths.every((path) => isGroupCollapsed(path));
   toggleAllGroupsBtn.textContent = allCollapsed ? "Expand all" : "Collapse all";
   toggleAllGroupsBtn.setAttribute("aria-expanded", String(!allCollapsed));
 }
@@ -289,9 +290,9 @@ toggleChecksBtn.addEventListener("click", () => {
 toggleAllGroupsBtn.addEventListener("click", toggleAllGroups);
 
 function toggleAllGroups() {
-  const groupNames = getTaskGroups().map((group) => group.name);
-  const allCollapsed = groupNames.length > 0 && groupNames.every((name) => isGroupCollapsed(name));
-  collapsedGroups = allCollapsed ? new Set() : new Set(groupNames.map(normalizeGroupName));
+  const rootGroupPaths = getRootGroupPaths();
+  const allCollapsed = rootGroupPaths.length > 0 && rootGroupPaths.every((path) => isGroupCollapsed(path));
+  collapsedGroups = allCollapsed ? new Set() : new Set(rootGroupPaths);
   saveCollapsedGroups();
   render();
 }
@@ -586,6 +587,7 @@ taskTableBody.addEventListener("dragstart", (event) => {
   const groupHandle = event.target.closest("[data-drag-group-name]");
   if (groupHandle) {
     draggedGroupName = groupHandle.dataset.dragGroupName;
+    draggedGroupParentPath = groupHandle.closest("tr")?.dataset.groupParentPath || "";
     draggedTaskId = "";
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", draggedGroupName);
@@ -598,6 +600,7 @@ taskTableBody.addEventListener("dragstart", (event) => {
 
   draggedTaskId = handle.dataset.dragTaskId;
   draggedGroupName = "";
+  draggedGroupParentPath = "";
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("text/plain", draggedTaskId);
   handle.closest("tr")?.classList.add("dragging");
@@ -630,6 +633,7 @@ taskTableBody.addEventListener("drop", (event) => {
     : moveDraggedTask(draggedTaskId, targetRow, getDropPosition(event, targetRow));
   draggedTaskId = "";
   draggedGroupName = "";
+  draggedGroupParentPath = "";
   clearDropIndicators();
   if (moved) saveAndRender();
 });
@@ -637,6 +641,7 @@ taskTableBody.addEventListener("drop", (event) => {
 taskTableBody.addEventListener("dragend", () => {
   draggedTaskId = "";
   draggedGroupName = "";
+  draggedGroupParentPath = "";
   clearDropIndicators();
   taskTableBody.querySelectorAll(".dragging").forEach((row) => row.classList.remove("dragging"));
 });

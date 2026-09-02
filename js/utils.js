@@ -2,11 +2,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getPathLeaf(path) {
-  if (!path) return "";
-  return String(path).split("\\").filter(Boolean).at(-1) || "";
-}
-
 function chunk(items, size) {
   const chunks = [];
   for (let index = 0; index < items.length; index += size) {

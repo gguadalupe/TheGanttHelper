@@ -57,7 +57,7 @@ function renderGantt(analysis) {
   inner.append(header);
 
   const warningTasks = groupWarningsByTask(analysis.warnings);
-  const taskGroups = getTaskGroups();
+  const tree = getTaskGroupTree();
   const projectRollup = getGroupRollup(state.tasks);
 
   const projectRow = document.createElement("div");
@@ -89,90 +89,8 @@ function renderGantt(analysis) {
   projectRow.append(projectTrack);
   inner.append(projectRow);
 
-  taskGroups.forEach((group) => {
-    const collapsed = isGroupCollapsed(group.name);
-    const rollup = getGroupRollup(group.tasks);
-    const row = document.createElement("div");
-    row.className = "gantt-group-row";
-    row.append(labelCell(group.name, rollup.totalCount ? `${rollup.progressPercent}% · ${rollup.doneCount}/${rollup.totalCount} done` : "0 tasks"));
-
-    const track = document.createElement("div");
-    track.className = "track group-track";
-    track.style.gridTemplateColumns = columnsTemplate;
-    const groupRange = rollup.range;
-    if (groupRange) {
-      const startIndex = days.indexOf(groupRange.start);
-      const endIndex = days.indexOf(groupRange.end);
-      if (startIndex >= 0 && endIndex >= 0) {
-        const summary = document.createElement("div");
-        summary.className = "group-summary-bar";
-        summary.dataset.groupName = group.name;
-        summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
-        summary.title = `${group.name}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)} - ${rollup.progressPercent}% complete (drag to reschedule)`;
-
-        const fill = document.createElement("div");
-        fill.className = "group-summary-fill";
-        fill.style.width = `${rollup.progressPercent}%`;
-        summary.append(fill);
-
-        track.append(summary);
-      }
-    }
-    row.append(track);
-    inner.append(row);
-
-    if (collapsed) return;
-
-    group.tasks.forEach((task) => {
-      const taskRow = document.createElement("div");
-      taskRow.className = "gantt-row";
-      taskRow.append(labelCell(task.name || "Untitled task", isMilestoneType(task.type) ? "Milestone" : `${task.duration}d`));
-
-      const taskTrack = document.createElement("div");
-      taskTrack.className = "track";
-      taskTrack.style.gridTemplateColumns = columnsTemplate;
-
-      days.forEach((day, index) => {
-        const cell = document.createElement("div");
-        cell.className = dayCellClass(day, "day-cell");
-        cell.style.gridColumn = `${index + 1}`;
-        taskTrack.append(cell);
-      });
-
-      const startIndex = days.indexOf(task.startDate);
-      const finishDate = getFinishDate(task);
-      const finishIndex = days.indexOf(finishDate);
-      if (startIndex >= 0 && finishIndex >= 0) {
-        if (isMilestoneType(task.type)) {
-          const milestone = document.createElement("div");
-          milestone.className = [
-            "milestone",
-            isDoneStatus(task.status) ? "done" : "",
-            warningTasks.has(task.id) ? "warning" : ""
-          ].filter(Boolean).join(" ");
-          milestone.style.gridColumn = `${startIndex + 1}`;
-          milestone.title = `${task.name || "Untitled milestone"}: ${formatShortDate(task.startDate)}`;
-          milestone.setAttribute("aria-label", milestone.title);
-          taskTrack.append(milestone);
-        } else {
-          const bar = document.createElement("div");
-          bar.className = [
-            "bar",
-            isInProgressStatus(task.status) ? "in-progress" : "",
-            isDoneStatus(task.status) ? "done" : "",
-            warningTasks.has(task.id) ? "warning" : ""
-          ].filter(Boolean).join(" ");
-          bar.style.gridColumn = `${startIndex + 1} / span ${finishIndex - startIndex + 1}`;
-          bar.textContent = task.name || "Untitled task";
-          bar.title = `${task.name || "Untitled task"}: ${formatShortDate(task.startDate)} to ${formatShortDate(finishDate)}`;
-          taskTrack.append(bar);
-        }
-      }
-
-      taskRow.append(taskTrack);
-      inner.append(taskRow);
-    });
-  });
+  const ganttContext = { inner, days, columnsTemplate, warningTasks };
+  renderGanttGroupEntries(tree.entries, 0, ganttContext);
 
   const todayIndex = days.indexOf(toIsoDate(new Date()));
   if (todayIndex >= 0) {
@@ -183,6 +101,108 @@ function renderGantt(analysis) {
   }
 
   gantt.append(inner);
+}
+
+function renderGanttGroupEntries(entries, depth, context) {
+  entries.forEach((entry) => {
+    if (entry.type === "task") {
+      renderGanttTaskRow(entry.task, context);
+    } else {
+      renderGanttGroupRow(entry.node, depth, context);
+    }
+  });
+}
+
+function renderGanttGroupRow(node, depth, context) {
+  const { inner, days, columnsTemplate, warningTasks } = context;
+  const collapsed = isGroupCollapsed(node.path);
+  const nodeTasks = getGroupNodeTasks(node);
+  const rollup = getGroupRollup(nodeTasks);
+  const row = document.createElement("div");
+  row.className = "gantt-group-row";
+  const label = labelCell(node.name, rollup.totalCount ? `${rollup.progressPercent}% · ${rollup.doneCount}/${rollup.totalCount} done` : "0 tasks");
+  label.style.setProperty("--depth", String(depth));
+  label.title = node.path;
+  row.append(label);
+
+  const track = document.createElement("div");
+  track.className = "track group-track";
+  track.style.gridTemplateColumns = columnsTemplate;
+  const groupRange = rollup.range;
+  if (groupRange) {
+    const startIndex = days.indexOf(groupRange.start);
+    const endIndex = days.indexOf(groupRange.end);
+    if (startIndex >= 0 && endIndex >= 0) {
+      const summary = document.createElement("div");
+      summary.className = "group-summary-bar";
+      summary.dataset.groupName = node.path;
+      summary.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
+      summary.title = `${node.path}: ${formatShortDate(groupRange.start)} to ${formatShortDate(groupRange.end)} - ${rollup.progressPercent}% complete (drag to reschedule)`;
+
+      const fill = document.createElement("div");
+      fill.className = "group-summary-fill";
+      fill.style.width = `${rollup.progressPercent}%`;
+      summary.append(fill);
+
+      track.append(summary);
+    }
+  }
+  row.append(track);
+  inner.append(row);
+
+  if (collapsed) return;
+  renderGanttGroupEntries(node.entries, depth + 1, context);
+}
+
+function renderGanttTaskRow(task, context) {
+  const { inner, days, columnsTemplate, warningTasks } = context;
+  const taskRow = document.createElement("div");
+  taskRow.className = "gantt-row";
+  taskRow.append(labelCell(task.name || "Untitled task", isMilestoneType(task.type) ? "Milestone" : `${task.duration}d`));
+
+  const taskTrack = document.createElement("div");
+  taskTrack.className = "track";
+  taskTrack.style.gridTemplateColumns = columnsTemplate;
+
+  days.forEach((day, index) => {
+    const cell = document.createElement("div");
+    cell.className = dayCellClass(day, "day-cell");
+    cell.style.gridColumn = `${index + 1}`;
+    taskTrack.append(cell);
+  });
+
+  const startIndex = days.indexOf(task.startDate);
+  const finishDate = getFinishDate(task);
+  const finishIndex = days.indexOf(finishDate);
+  if (startIndex >= 0 && finishIndex >= 0) {
+    if (isMilestoneType(task.type)) {
+      const milestone = document.createElement("div");
+      milestone.className = [
+        "milestone",
+        isDoneStatus(task.status) ? "done" : "",
+        warningTasks.has(task.id) ? "warning" : ""
+      ].filter(Boolean).join(" ");
+      milestone.style.gridColumn = `${startIndex + 1}`;
+      milestone.title = `${task.name || "Untitled milestone"}: ${formatShortDate(task.startDate)}`;
+      milestone.setAttribute("aria-label", milestone.title);
+      taskTrack.append(milestone);
+    } else {
+      const bar = document.createElement("div");
+      bar.className = [
+        "bar",
+        isInProgressStatus(task.status) ? "in-progress" : "",
+        isDoneStatus(task.status) ? "done" : "",
+        warningTasks.has(task.id) ? "warning" : ""
+      ].filter(Boolean).join(" ");
+      bar.style.gridColumn = `${startIndex + 1} / span ${finishIndex - startIndex + 1}`;
+      bar.textContent = task.name || "Untitled task";
+      bar.title = `${task.name || "Untitled task"}: ${formatShortDate(task.startDate)} to ${formatShortDate(finishDate)}`;
+      taskTrack.append(bar);
+    }
+  }
+
+  taskRow.append(taskTrack);
+  inner.append(taskRow);
 }
 
 function getMonthSpans(days) {

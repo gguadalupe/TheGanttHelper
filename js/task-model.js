@@ -210,11 +210,33 @@ function getGroupRollup(tasks) {
   };
 }
 
-function shiftGroupDates(groupName, dayDelta) {
+function splitGroupPath(value) {
+  const raw = typeof value === "string" ? value : "";
+  const segments = raw.split(GROUP_PATH_SEPARATOR).map((part) => part.trim()).filter(Boolean);
+  return segments.length ? segments : ["Ungrouped"];
+}
+
+function normalizeGroupName(value) {
+  return splitGroupPath(value).join(GROUP_PATH_SEPARATOR);
+}
+
+function isGroupPathOrDescendant(taskGroupRaw, groupPath) {
+  const candidate = splitGroupPath(taskGroupRaw);
+  const target = splitGroupPath(groupPath);
+  return target.every((segment, index) => candidate[index] === segment);
+}
+
+function replaceGroupPathPrefix(candidatePath, previousSegments, nextSegments) {
+  const candidateSegments = splitGroupPath(candidatePath);
+  if (!previousSegments.every((segment, index) => candidateSegments[index] === segment)) return candidatePath;
+  const rest = candidateSegments.slice(previousSegments.length);
+  return [...nextSegments, ...rest].join(GROUP_PATH_SEPARATOR);
+}
+
+function shiftGroupDates(groupPath, dayDelta) {
   if (!dayDelta) return;
-  const normalized = normalizeGroupName(groupName);
   state.tasks.forEach((task) => {
-    if (normalizeGroupName(task.group) !== normalized) return;
+    if (!isGroupPathOrDescendant(task.group, groupPath)) return;
     if (!isIsoDate(task.startDate)) return;
     task.startDate = addCalendarDays(task.startDate, dayDelta);
     task.planningMonth = task.startDate.slice(0, 7);
@@ -222,22 +244,26 @@ function shiftGroupDates(groupName, dayDelta) {
   autoSchedule();
 }
 
-function renameTaskGroup(previousName, nextNameRaw) {
-  const previous = normalizeGroupName(previousName);
-  const next = normalizeGroupName(nextNameRaw);
+function renameTaskGroup(previousPathRaw, nextPathRaw) {
+  const previousSegments = splitGroupPath(previousPathRaw);
+  const nextSegments = splitGroupPath(nextPathRaw);
+  const previous = previousSegments.join(GROUP_PATH_SEPARATOR);
+  const next = nextSegments.join(GROUP_PATH_SEPARATOR);
   if (next === previous) return false;
 
   let changed = false;
   state.tasks.forEach((task) => {
-    if (normalizeGroupName(task.group) === previous) {
-      task.group = next;
-      changed = true;
-    }
+    if (!isGroupPathOrDescendant(task.group, previous)) return;
+    task.group = replaceGroupPathPrefix(task.group, previousSegments, nextSegments);
+    changed = true;
   });
 
-  if (changed && collapsedGroups.has(previous)) {
-    collapsedGroups.delete(previous);
-    collapsedGroups.add(next);
+  if (changed) {
+    const remapped = new Set();
+    collapsedGroups.forEach((path) => {
+      remapped.add(replaceGroupPathPrefix(path, previousSegments, nextSegments));
+    });
+    collapsedGroups = remapped;
     saveCollapsedGroups();
   }
 
@@ -245,25 +271,25 @@ function renameTaskGroup(previousName, nextNameRaw) {
 }
 
 function insertTaskInGroup(task) {
-  const normalizedGroup = normalizeGroupName(task.group);
+  const groupPath = normalizeGroupName(task.group);
   let insertAt = state.tasks.length;
 
   state.tasks.forEach((item, index) => {
-    if (normalizeGroupName(item.group) === normalizedGroup) insertAt = index + 1;
+    if (isGroupPathOrDescendant(item.group, groupPath)) insertAt = index + 1;
   });
 
   state.tasks.splice(insertAt, 0, task);
 }
 
 function moveTaskToGroup(task, nextGroup, previousGroup) {
-  const nextGroupName = normalizeGroupName(nextGroup);
-  if (nextGroupName === previousGroup) {
+  const nextGroupPath = normalizeGroupName(nextGroup);
+  if (nextGroupPath === previousGroup) {
     task.group = nextGroup;
     return;
   }
 
   const targetGroupExists = state.tasks.some((item) => (
-    item.id !== task.id && normalizeGroupName(item.group) === nextGroupName
+    item.id !== task.id && isGroupPathOrDescendant(item.group, nextGroupPath)
   ));
 
   task.group = nextGroup;
@@ -272,7 +298,7 @@ function moveTaskToGroup(task, nextGroup, previousGroup) {
   const withoutTask = state.tasks.filter((item) => item.id !== task.id);
   let insertAt = withoutTask.length;
   withoutTask.forEach((item, index) => {
-    if (normalizeGroupName(item.group) === nextGroupName) insertAt = index + 1;
+    if (isGroupPathOrDescendant(item.group, nextGroupPath)) insertAt = index + 1;
   });
 
   withoutTask.splice(insertAt, 0, task);
@@ -284,26 +310,55 @@ function getLastGroupName() {
   return lastTask ? normalizeGroupName(lastTask.group) : "";
 }
 
-function getTaskGroups() {
-  const groups = [];
-  const groupByName = new Map();
+function getTaskGroupTree() {
+  const root = { name: "", path: "", segments: [], depth: -1, entries: [], childByName: new Map() };
 
   state.tasks.forEach((task) => {
-    const name = normalizeGroupName(task.group);
-    if (!groupByName.has(name)) {
-      const group = { name, tasks: [] };
-      groups.push(group);
-      groupByName.set(name, group);
-    }
-    groupByName.get(name).tasks.push(task);
+    const segments = splitGroupPath(task.group);
+    let node = root;
+    let pathSoFar = [];
+
+    segments.forEach((segment, index) => {
+      pathSoFar.push(segment);
+      const isLast = index === segments.length - 1;
+      let child = node.childByName.get(segment);
+      if (!child) {
+        child = {
+          name: segment,
+          path: pathSoFar.join(GROUP_PATH_SEPARATOR),
+          segments: pathSoFar.slice(),
+          depth: pathSoFar.length - 1,
+          entries: [],
+          childByName: new Map()
+        };
+        node.childByName.set(segment, child);
+        node.entries.push({ type: "group", node: child });
+      }
+      node = child;
+      if (isLast) node.entries.push({ type: "task", task });
+    });
   });
 
-  return groups;
+  return root;
 }
 
-function normalizeGroupName(value) {
-  const name = typeof value === "string" ? value.trim() : "";
-  return name || "Ungrouped";
+function getGroupNodeTasks(node) {
+  const tasks = [];
+  node.entries.forEach((entry) => {
+    if (entry.type === "task") tasks.push(entry.task);
+    else tasks.push(...getGroupNodeTasks(entry.node));
+  });
+  return tasks;
+}
+
+function flattenGroupEntries(entries) {
+  return entries.flatMap((entry) => (entry.type === "task" ? [entry.task] : flattenGroupEntries(entry.node.entries)));
+}
+
+function getRootGroupPaths() {
+  return getTaskGroupTree().entries
+    .filter((entry) => entry.type === "group")
+    .map((entry) => entry.node.path);
 }
 
 function getTaskIdMap() {

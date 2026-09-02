@@ -10,6 +10,10 @@ const GANTT_ZOOM_KEY = "simple-gantt-zoom-v1";
 const GANTT_ZOOM_LEVELS = { day: 34, week: 12, month: 4 };
 const PLANNING_MONTH_COUNT_KEY = "simple-gantt-planning-month-count-v1";
 const DEFAULT_PLANNING_MONTH_COUNT = 4;
+// Nested group paths split on this exact substring (spaces required) so that
+// slashes with no surrounding spaces - "50/50", "2026/08" - never get treated
+// as nesting. Do not change this to a bare "/" split.
+const GROUP_PATH_SEPARATOR = " / ";
 const DEFAULT_DEVOPS_ORG = "insolut";
 const DEFAULT_DEVOPS_PROJECT = "Insurance Solutions";
 const DEFAULT_WIQL = [

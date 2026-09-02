@@ -506,6 +506,7 @@ body.resizing-board {
   display: flex;
   align-items: center;
   gap: 4px;
+  margin-left: calc(var(--depth, 0) * 14px);
 }
 
 .table-group-row .group-drag-handle {
@@ -856,6 +857,7 @@ body.resizing-board {
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 0 12px;
+  padding-left: calc(12px + var(--depth, 0) * 14px);
   min-width: 0;
 }
 
