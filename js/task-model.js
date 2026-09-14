@@ -33,6 +33,10 @@ function normalizeState(raw) {
       startDate: isIsoDate(task.startDate) ? task.startDate : toIsoDate(new Date()),
       planningMonth: normalizePlanningMonth(task.planningMonth, task.startDate),
       duration: Math.max(1, Number.parseInt(task.duration || task.durationDays, 10) || 1),
+      effortEstimate: Number.isFinite(Number.parseFloat(task.effortEstimate)) && task.effortEstimate !== "" && task.effortEstimate != null
+        ? Number.parseFloat(task.effortEstimate)
+        : null,
+      effortLevel: typeof task.effortLevel === "string" ? task.effortLevel : "",
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
       parentId: task.parentId == null ? "" : String(task.parentId),
       dueDate: isIsoDate(task.dueDate) ? task.dueDate : "",
@@ -148,6 +152,23 @@ function getStatusOptions(currentStatus = "") {
   return options;
 }
 
+function getEffortLevelOptions(currentValue = "") {
+  const options = [];
+  const seen = new Set();
+  const addOption = (value) => {
+    const normalizedValue = typeof value === "string" ? value.trim() : "";
+    if (seen.has(normalizedValue)) return;
+    seen.add(normalizedValue);
+    options.push([normalizedValue, normalizedValue || "-"]);
+  };
+
+  effortLevelOptions.forEach(([value]) => addOption(value));
+  state.tasks.forEach((task) => addOption(task.effortLevel));
+  state.devops.inbox.forEach((item) => addOption(item.effortLevel));
+  addOption(currentValue);
+  return options;
+}
+
 function getStatusLabel(value) {
   const normalizedStatus = normalizeTaskStatus(value);
   return statusOptions.find(([optionValue]) => optionValue === normalizedStatus)?.[1] || normalizedStatus;
@@ -195,6 +216,10 @@ function getGroupRollup(tasks) {
   const progressPercent = tasks.length
     ? Math.round((tasks.reduce((sum, task) => sum + getStatusProgressFactor(task.status), 0) / tasks.length) * 100)
     : 0;
+  const tasksWithEffort = tasks.filter((task) => Number.isFinite(task.effortEstimate));
+  const totalEffort = tasksWithEffort.length
+    ? tasksWithEffort.reduce((sum, task) => sum + task.effortEstimate, 0)
+    : null;
 
   let status = "not-started";
   if (tasks.length && doneCount === tasks.length) status = "done";
@@ -206,6 +231,7 @@ function getGroupRollup(tasks) {
     doneCount,
     totalCount: tasks.length,
     progressPercent,
+    totalEffort,
     status
   };
 }

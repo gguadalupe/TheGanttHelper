@@ -526,6 +526,9 @@ taskTableBody.addEventListener("change", (event) => {
   const previousGroup = normalizeGroupName(task.group);
   if (field === "duration") {
     task.duration = Math.max(1, Number.parseInt(event.target.value, 10) || 1);
+  } else if (field === "effortEstimate") {
+    const parsed = Number.parseFloat(event.target.value);
+    task.effortEstimate = event.target.value !== "" && Number.isFinite(parsed) ? parsed : null;
   } else if (field === "type") {
     task.type = normalizeTaskType(event.target.value);
     if (isMilestoneType(task.type)) task.duration = 1;

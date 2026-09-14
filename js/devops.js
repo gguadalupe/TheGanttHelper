@@ -88,6 +88,7 @@ function renderDevopsInboxItem(item) {
   meta.textContent = [
     item.workItemType,
     item.parentId ? `Parent #${item.parentId}${item.parentTitle ? ` ${item.parentTitle}` : ""}` : "",
+    item.effortLevel ? `Effort ${item.effortLevel}` : "",
     item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
     item.state,
     item.assignedTo || "Unassigned",
@@ -506,6 +507,8 @@ function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
     iterationPath: fields["System.IterationPath"] || "",
     tags: fields["System.Tags"] || "",
     changedDate: fields["System.ChangedDate"] || "",
+    effortEstimate: getDevopsEffortEstimate(fields),
+    effortLevel: getDevopsEffortLevel(fields),
     parentId,
     parentTitle,
     dueDate: getDevopsDueDate(fields),
@@ -583,6 +586,8 @@ function addDevopsItemToPlan(item, row) {
     startDate: isIsoDate(startDate) ? startDate : toIsoDate(new Date()),
     planningMonth: (isIsoDate(startDate) ? startDate : toIsoDate(new Date())).slice(0, 7),
     duration: isMilestoneType(type) ? 1 : duration,
+    effortEstimate: item.effortEstimate,
+    effortLevel: item.effortLevel || "",
     dependsOn: "",
     parentId: item.parentId || "",
     dueDate: item.dueDate || "",
@@ -611,11 +616,13 @@ function applyDevopsUpdate(item) {
     });
   }
   // Once a task is imported, the plan owns type/group/dates - resyncing only pulls
-  // title, status, and owner, since those are the fields DevOps stays authoritative on.
-  // The rest is metadata needed to keep sync/linking working, not plan content.
+  // title, status, owner, and effort level, since those are the fields DevOps stays
+  // authoritative on. The rest is metadata needed to keep sync/linking working, not
+  // plan content.
   task.name = item.title;
   task.status = getDevopsStatus(item.state);
   task.owner = item.assignedTo || "";
+  task.effortLevel = item.effortLevel || "";
   task.externalUrl = item.url;
   task.externalSignature = item.signature;
   task.externalChangedDate = item.changedDate;
@@ -671,6 +678,8 @@ function normalizeDevopsInboxItem(item) {
     iterationPath: typeof item.iterationPath === "string" ? item.iterationPath : "",
     tags: typeof item.tags === "string" ? item.tags : "",
     changedDate: typeof item.changedDate === "string" ? item.changedDate : "",
+    effortEstimate: parseDevopsNumber(item.effortEstimate),
+    effortLevel: typeof item.effortLevel === "string" ? item.effortLevel : "",
     parentId: item.parentId == null ? "" : String(item.parentId),
     parentTitle: typeof item.parentTitle === "string" ? item.parentTitle : "",
     dueDate: isIsoDate(item.dueDate) ? item.dueDate : "",
@@ -766,6 +775,34 @@ function getDevopsDueDate(fields) {
   return toIsoDate(date);
 }
 
+// The field's reference name varies by process template ("Microsoft.VSTS.Scheduling.Effort"
+// on Agile, "Microsoft.VSTS.Scheduling.StoryPoints" on Scrum, or a custom field on a
+// customized template like this org's). Rather than hardcode one name, scan for any field
+// whose reference name contains "effort" first (catches the standard field and any custom
+// "Effort Estimate"-style field), then fall back to the other common estimate fields.
+function getDevopsEffortEstimate(fields) {
+  const effortKey = Object.keys(fields).find((key) => /effort/i.test(key));
+  if (effortKey) {
+    const value = parseDevopsNumber(fields[effortKey]);
+    if (value != null) return value;
+  }
+  return parseDevopsNumber(fields["Microsoft.VSTS.Scheduling.StoryPoints"] ?? fields["Microsoft.VSTS.Scheduling.Size"]);
+}
+
+// Confirmed against this org's raw work item JSON: Custom.EffortEstimate is a
+// qualitative picklist ("Low"/"Medium"/"High"), not a number - kept as its own field
+// rather than folded into effortEstimate above, which stays a plan-managed day count.
+function getDevopsEffortLevel(fields) {
+  const value = fields["Custom.EffortEstimate"];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseDevopsNumber(value) {
+  if (value == null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function getDevopsSignature(item) {
   return JSON.stringify({
     title: item.title,
@@ -779,7 +816,9 @@ function getDevopsSignature(item) {
     changedDate: item.changedDate,
     parentId: item.parentId,
     parentTitle: item.parentTitle,
-    dueDate: item.dueDate
+    dueDate: item.dueDate,
+    effortEstimate: item.effortEstimate,
+    effortLevel: item.effortLevel
   });
 }
 

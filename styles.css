@@ -595,56 +595,15 @@ body.resizing-board {
   width: 300px;
 }
 
-.task-table th:nth-child(3),
-.task-table td:nth-child(3) {
-  width: 120px;
-}
-
-.task-table th:nth-child(4),
-.task-table td:nth-child(4) {
-  width: 122px;
-}
-
-.task-table th:nth-child(5),
-.task-table td:nth-child(5) {
-  width: 96px;
-}
-
-.task-table th:nth-child(6),
-.task-table td:nth-child(6),
-.task-table th:nth-child(10),
-.task-table td:nth-child(10) {
-  width: 140px;
-}
-
-.task-table th:nth-child(8),
-.task-table td:nth-child(8) {
-  width: 118px;
-}
-
-.task-table th:nth-child(7),
-.task-table td:nth-child(7) {
-  width: 78px;
-}
-
-.task-table th:nth-child(9),
-.task-table td:nth-child(9) {
-  width: 156px;
-}
-
-.task-table th:nth-child(11),
-.task-table td:nth-child(11) {
-  width: 120px;
-}
-
-.task-table th:nth-child(12),
-.task-table td:nth-child(12) {
-  width: 148px;
-}
-
-.task-table th:nth-child(13),
-.task-table td:nth-child(13) {
-  width: 58px;
+/*
+ * Column widths are set inline by applyTableColumnSettings() (table.js) via
+ * [data-column] on every th/td, keyed off taskColumns in constants.js - so width isn't
+ * set here. These rules target columns by that same stable data-column key rather than
+ * nth-child position, since a positional selector silently points at the wrong column
+ * the moment a column is added, reordered, or hidden.
+ */
+.task-table th[data-column="actions"],
+.task-table td[data-column="actions"] {
   text-align: center;
 }
 

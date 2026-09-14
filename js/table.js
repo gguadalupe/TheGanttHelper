@@ -141,6 +141,8 @@ function renderTable(analysis) {
     groupEmptyCell("owner"),
     groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.start) : "", "start"),
     groupRollupCell(projectRollup.range ? `${projectRollup.businessDays}d` : "", "duration"),
+    groupRollupCell(projectRollup.totalEffort != null ? String(projectRollup.totalEffort) : "", "effort"),
+    groupEmptyCell("effortLevel"),
     groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
     groupEmptyCell("due"),
@@ -185,6 +187,8 @@ function renderGroupRow(node, depth, parentPath, warningsByTask) {
     groupEmptyCell("owner"),
     groupStartDateCell(node.path, rollup),
     groupRollupCell(rollup.range ? `${rollup.businessDays}d` : "", "duration"),
+    groupRollupCell(rollup.totalEffort != null ? String(rollup.totalEffort) : "", "effort"),
+    groupEmptyCell("effortLevel"),
     groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
     groupEmptyCell("due"),
@@ -220,6 +224,8 @@ function renderTaskRow(task, warningsByTask) {
     inputCell(task, "owner", "text", "owner"),
     inputCell(task, "startDate", "date", "start"),
     inputCell(task, "duration", "number", "duration"),
+    inputCell(task, "effortEstimate", "number", "effort"),
+    effortLevelCell(task),
     readOnlyCell(getFinishDate(task), "finish"),
     inputCell(task, "dependsOn", "text", "dependsOn"),
     inputCell(task, "dueDate", "date", "due"),
@@ -391,6 +397,10 @@ function createTaskInput(task, field, type) {
     input.step = "1";
     input.disabled = isMilestoneType(task.type);
     input.title = isMilestoneType(task.type) ? "Milestones are one day markers." : "";
+  } else if (field === "effortEstimate") {
+    input.min = "0";
+    input.step = "any";
+    input.placeholder = "-";
   }
   return input;
 }
@@ -421,6 +431,25 @@ function typeCell(task) {
   });
 
   select.value = normalizeTaskType(task.type);
+  cell.append(select);
+  return cell;
+}
+
+function effortLevelCell(task) {
+  const cell = document.createElement("td");
+  cell.dataset.column = "effortLevel";
+  const select = document.createElement("select");
+  select.dataset.id = task.id;
+  select.dataset.field = "effortLevel";
+
+  getEffortLevelOptions(task.effortLevel).forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  });
+
+  select.value = task.effortLevel || "";
   cell.append(select);
   return cell;
 }

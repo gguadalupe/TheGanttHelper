@@ -54,6 +54,17 @@ const STATUS_PROGRESS_FACTORS = {
   "removed": 1
 };
 
+// Azure DevOps' Custom.EffortEstimate field is a qualitative picklist, not a number -
+// kept separate from the day-based effortEstimate the plan tracks itself. This list is
+// just the canonical/default options; getEffortLevelOptions() also picks up any other
+// value already in use, same as statusOptions/typeOptions do.
+const effortLevelOptions = [
+  ["", "-"],
+  ["Low", "Low"],
+  ["Medium", "Medium"],
+  ["High", "High"]
+];
+
 const typeOptions = [
   ["task", "Task"],
   ["milestone", "Milestone"],
@@ -86,6 +97,8 @@ const taskColumns = [
   { key: "owner", label: "Owner", width: 96, min: 80 },
   { key: "start", label: "Start", width: 140, min: 110 },
   { key: "duration", label: "Days", width: 78, min: 64 },
+  { key: "effort", label: "Effort", width: 90, min: 64 },
+  { key: "effortLevel", label: "Effort Level", width: 100, min: 80 },
   { key: "finish", label: "Finish", width: 118, min: 100 },
   { key: "dependsOn", label: "Depends on", width: 156, min: 110 },
   { key: "due", label: "Due", width: 140, min: 110 },
