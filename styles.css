@@ -433,9 +433,42 @@ body.resizing-board {
   letter-spacing: 0;
 }
 
-.task-table thead tr,
+.task-table thead tr:not(.filter-row),
 .gantt-header {
   height: 60px;
+}
+
+.filter-row td {
+  position: sticky;
+  top: 60px;
+  z-index: 2;
+  height: 34px;
+  background: #fff;
+  padding: 3px 4px;
+}
+
+.filter-input {
+  width: 100%;
+  height: 26px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0 4px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.filter-input:hover,
+.filter-input:focus {
+  border-color: var(--accent);
+}
+
+.filter-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .task-table tbody tr:not(.table-group-row),
@@ -718,7 +751,6 @@ body.resizing-board {
   pointer-events: none;
 }
 
-.gantt-header,
 .gantt-row,
 .gantt-group-row {
   display: grid;
@@ -730,7 +762,23 @@ body.resizing-board {
   position: sticky;
   top: 0;
   z-index: 5;
+  display: flex;
+  flex-direction: column;
+  height: 94px;
+}
+
+.gantt-header-main {
+  display: grid;
+  grid-template-columns: 230px 1fr;
   height: 60px;
+}
+
+/* Matches the height the table's filter row adds to its thead, so gantt rows stay
+   aligned with their table counterparts - see js/gantt.js renderGantt(). */
+.gantt-header-spacer {
+  height: 34px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .gantt-group-row {

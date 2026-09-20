@@ -12,6 +12,8 @@ const openDevopsBtn = document.querySelector("#openDevopsBtn");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const toggleAllGroupsBtn = document.querySelector("#toggleAllGroupsBtn");
+const clearFiltersBtn = document.querySelector("#clearFiltersBtn");
+const taskFilterRow = document.querySelector("#taskFilterRow");
 const projectSummary = document.querySelector("#projectSummary");
 const timelineSummary = document.querySelector("#timelineSummary");
 const taskTableBody = document.querySelector("#taskTableBody");
@@ -56,6 +58,7 @@ let groupBarDrag = null;
 let collapsedGroups = loadCollapsedGroups();
 let columnSettings = loadColumnSettings();
 let collapsedDevopsGroups = loadCollapsedDevopsGroups();
+let taskFilters = loadTaskFilters();
 
 function saveAndRender() {
   saveState();
@@ -69,6 +72,7 @@ function render() {
   renderChecksToggle(analysis);
   renderGroupsToggle();
   renderDevopsButton();
+  clearFiltersBtn.hidden = !isAnyTaskFilterActive(taskFilters);
   renderSummary(analysis);
   renderTable(analysis);
   renderGantt(analysis);
@@ -296,6 +300,20 @@ function toggleAllGroups() {
   saveCollapsedGroups();
   render();
 }
+
+taskFilterRow.addEventListener("change", (event) => {
+  const field = event.target.dataset.taskFilter;
+  if (!field) return;
+  taskFilters[field] = event.target.value;
+  saveTaskFilters();
+  render();
+});
+
+clearFiltersBtn.addEventListener("click", () => {
+  taskFilters = defaultTaskFilters();
+  saveTaskFilters();
+  render();
+});
 
 openColumnsBtn.addEventListener("click", () => {
   renderColumnsPanel();
@@ -526,9 +544,6 @@ taskTableBody.addEventListener("change", (event) => {
   const previousGroup = normalizeGroupName(task.group);
   if (field === "duration") {
     task.duration = Math.max(1, Number.parseInt(event.target.value, 10) || 1);
-  } else if (field === "effortEstimate") {
-    const parsed = Number.parseFloat(event.target.value);
-    task.effortEstimate = event.target.value !== "" && Number.isFinite(parsed) ? parsed : null;
   } else if (field === "type") {
     task.type = normalizeTaskType(event.target.value);
     if (isMilestoneType(task.type)) task.duration = 1;
@@ -553,7 +568,7 @@ taskTableBody.addEventListener("change", (event) => {
     task.dependsOn = "";
   }
 
-  if (field === "dependsOn") {
+  if (field === "dependsOn" || field === "dueDate" || field === "duration") {
     autoSchedule();
   }
 

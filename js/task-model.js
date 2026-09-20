@@ -33,9 +33,6 @@ function normalizeState(raw) {
       startDate: isIsoDate(task.startDate) ? task.startDate : toIsoDate(new Date()),
       planningMonth: normalizePlanningMonth(task.planningMonth, task.startDate),
       duration: Math.max(1, Number.parseInt(task.duration || task.durationDays, 10) || 1),
-      effortEstimate: Number.isFinite(Number.parseFloat(task.effortEstimate)) && task.effortEstimate !== "" && task.effortEstimate != null
-        ? Number.parseFloat(task.effortEstimate)
-        : null,
       effortLevel: typeof task.effortLevel === "string" ? task.effortLevel : "",
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
       parentId: task.parentId == null ? "" : String(task.parentId),
@@ -126,6 +123,21 @@ function getTypeLabel(value) {
   return typeOptions.find(([optionValue]) => optionValue === normalizedType)?.[1] || normalizedType;
 }
 
+// Filter dropdowns only offer values actually present on a task, so every option is
+// guaranteed to match at least one row - unlike getTypeOptions(), which also seeds the
+// canonical list and the DevOps inbox for the per-task <select> editors.
+function getUsedTaskTypes() {
+  const seen = new Set();
+  const options = [];
+  state.tasks.forEach((task) => {
+    const type = normalizeTaskType(task.type);
+    if (seen.has(type)) return;
+    seen.add(type);
+    options.push([type, getTypeLabel(type)]);
+  });
+  return options.sort((a, b) => a[1].localeCompare(b[1]));
+}
+
 function isMilestoneType(value) {
   return normalizeTaskType(value).toLowerCase() === "milestone";
 }
@@ -150,6 +162,18 @@ function getStatusOptions(currentStatus = "") {
   state.devops.inbox.forEach((item) => addOption(item.state, getStatusLabel(item.state)));
   addOption(currentStatus, getStatusLabel(currentStatus));
   return options;
+}
+
+function getUsedTaskStatuses() {
+  const seen = new Set();
+  const options = [];
+  state.tasks.forEach((task) => {
+    const status = normalizeTaskStatus(task.status);
+    if (seen.has(status)) return;
+    seen.add(status);
+    options.push([status, getStatusLabel(status)]);
+  });
+  return options.sort((a, b) => a[1].localeCompare(b[1]));
 }
 
 function getEffortLevelOptions(currentValue = "") {
@@ -216,10 +240,10 @@ function getGroupRollup(tasks) {
   const progressPercent = tasks.length
     ? Math.round((tasks.reduce((sum, task) => sum + getStatusProgressFactor(task.status), 0) / tasks.length) * 100)
     : 0;
-  const tasksWithEffort = tasks.filter((task) => Number.isFinite(task.effortEstimate));
-  const totalEffort = tasksWithEffort.length
-    ? tasksWithEffort.reduce((sum, task) => sum + task.effortEstimate, 0)
-    : null;
+  // Total effort is the sum of each task's own duration (person-days of work), distinct
+  // from businessDays above (the group's elapsed calendar span) - tasks that overlap
+  // push this higher than the span they fit into.
+  const totalEffort = tasks.reduce((sum, task) => sum + (Number.isFinite(task.duration) ? task.duration : 0), 0);
 
   let status = "not-started";
   if (tasks.length && doneCount === tasks.length) status = "done";
@@ -336,10 +360,10 @@ function getLastGroupName() {
   return lastTask ? normalizeGroupName(lastTask.group) : "";
 }
 
-function getTaskGroupTree() {
+function getTaskGroupTree(tasks = state.tasks) {
   const root = { name: "", path: "", segments: [], depth: -1, entries: [], childByName: new Map() };
 
-  state.tasks.forEach((task) => {
+  tasks.forEach((task) => {
     const segments = splitGroupPath(task.group);
     let node = root;
     let pathSoFar = [];
@@ -385,6 +409,50 @@ function getRootGroupPaths() {
   return getTaskGroupTree().entries
     .filter((entry) => entry.type === "group")
     .map((entry) => entry.node.path);
+}
+
+// Every group path at every depth (not just leaves) - lets the filter dropdown offer
+// a whole subtree (e.g. "Pet") as one option, not just its Done/Pending leaves.
+function getAllGroupPaths(node = getTaskGroupTree(), acc = []) {
+  node.entries.forEach((entry) => {
+    if (entry.type !== "group") return;
+    acc.push(entry.node.path);
+    getAllGroupPaths(entry.node, acc);
+  });
+  return acc;
+}
+
+function getFilteredTasks() {
+  const todayIso = toIsoDate(new Date());
+  return state.tasks.filter((task) => taskMatchesFilters(task, taskFilters, todayIso));
+}
+
+function taskMatchesFilters(task, filters, todayIso = toIsoDate(new Date())) {
+  if (filters.group && !isGroupPathOrDescendant(task.group, filters.group)) return false;
+  if (filters.type && normalizeTaskType(task.type) !== filters.type) return false;
+  if (filters.owner && normalizeOwnerName(task.owner) !== filters.owner) return false;
+  if (filters.status && normalizeTaskStatus(task.status) !== filters.status) return false;
+  if (filters.dueBucket && getDueDateBucket(task, todayIso) !== filters.dueBucket) return false;
+  if (filters.search) {
+    const needle = filters.search.trim().toLowerCase();
+    if (needle && !task.name.toLowerCase().includes(needle) && !task.taskId.toLowerCase().includes(needle)) return false;
+  }
+  return true;
+}
+
+// "This week" is the calendar week (Mon-Sun) containing today, matching the week
+// boundaries the Gantt's week-zoom view already uses (getWeekStart in dates.js) -
+// keeps the filter's idea of "current" consistent with the rest of the app.
+function getDueDateBucket(task, todayIso = toIsoDate(new Date())) {
+  if (!isIsoDate(task.dueDate)) return "none";
+  if (compareDates(task.dueDate, todayIso) < 0) return "overdue";
+  const weekEnd = addCalendarDays(getWeekStart(todayIso), 6);
+  if (compareDates(task.dueDate, weekEnd) <= 0) return "this-week";
+  return "later";
+}
+
+function isAnyTaskFilterActive(filters) {
+  return Boolean(filters.group || filters.type || filters.owner || filters.status || filters.dueBucket || filters.search.trim());
 }
 
 function getTaskIdMap() {
@@ -528,12 +596,25 @@ function autoSchedule() {
   const { taskByTaskId, cycles, ordered } = orderTasksByDependencies();
 
   ordered.forEach((task) => {
+    if (isIsoDate(task.dueDate)) {
+      // Due dates take priority over dependency pushes: schedule backward from the
+      // deadline so Start always answers "when does this need to start to land on
+      // time, given its duration?" - even if that lands before a dependency finishes.
+      // That conflict isn't hidden - it surfaces as the existing "starts before X
+      // finishes" Link warning in analyzeTasks, same as any other scheduling conflict.
+      const span = isMilestoneType(task.type) ? 0 : Math.max(1, task.duration) - 1;
+      task.startDate = addBusinessDays(task.dueDate, -span);
+      task.planningMonth = task.startDate.slice(0, 7);
+      return;
+    }
+
     if (!task.dependsOn || cycles.has(task.id)) return;
     const dependency = taskByTaskId.get(task.dependsOn);
     if (!dependency) return;
     const earliest = addBusinessDays(getFinishDate(dependency), 1);
     if (compareDates(task.startDate, earliest) < 0) {
       task.startDate = earliest;
+      task.planningMonth = task.startDate.slice(0, 7);
     }
   });
 }

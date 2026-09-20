@@ -111,8 +111,102 @@ function toggleTaskGroup(groupPath) {
   render();
 }
 
+function defaultTaskFilters() {
+  return { group: "", type: "", owner: "", status: "", dueBucket: "", search: "" };
+}
+
+function loadTaskFilters() {
+  const defaults = defaultTaskFilters();
+  try {
+    const saved = JSON.parse(localStorage.getItem(TASK_FILTERS_KEY) || "{}");
+    const dueBucketValues = ["", ...dueBucketOptions.map(([value]) => value)];
+    return {
+      group: typeof saved.group === "string" ? saved.group : defaults.group,
+      type: typeof saved.type === "string" ? saved.type : defaults.type,
+      owner: typeof saved.owner === "string" ? saved.owner : defaults.owner,
+      status: typeof saved.status === "string" ? saved.status : defaults.status,
+      dueBucket: dueBucketValues.includes(saved.dueBucket) ? saved.dueBucket : defaults.dueBucket,
+      search: typeof saved.search === "string" ? saved.search : defaults.search
+    };
+  } catch {
+    localStorage.removeItem(TASK_FILTERS_KEY);
+    return defaults;
+  }
+}
+
+function saveTaskFilters() {
+  localStorage.setItem(TASK_FILTERS_KEY, JSON.stringify(taskFilters));
+}
+
+function renderTaskFilterRow() {
+  if (!taskFilterRow) return;
+  taskFilterRow.textContent = "";
+
+  taskFilterRow.append(
+    filterEmptyCell("id"),
+    filterSearchCell(),
+    filterSelectCell("group", getAllGroupPaths().map((path) => [path, path]), "All groups"),
+    filterSelectCell("type", getUsedTaskTypes(), "All types"),
+    filterSelectCell("owner", getCapacityOwners().map((owner) => [owner, owner]), "All owners"),
+    filterEmptyCell("start"),
+    filterEmptyCell("duration"),
+    filterEmptyCell("effortLevel"),
+    filterEmptyCell("finish"),
+    filterEmptyCell("dependsOn"),
+    filterSelectCell("dueBucket", dueBucketOptions, "All due dates", "due"),
+    filterSelectCell("status", getUsedTaskStatuses(), "All statuses"),
+    filterEmptyCell("notes"),
+    filterEmptyCell("actions")
+  );
+}
+
+function filterEmptyCell(column) {
+  const cell = document.createElement("td");
+  cell.dataset.column = column;
+  return cell;
+}
+
+function filterSearchCell() {
+  const cell = document.createElement("td");
+  cell.dataset.column = "title";
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "filter-input";
+  input.placeholder = "Search name or ID...";
+  input.value = taskFilters.search;
+  input.dataset.taskFilter = "search";
+  input.setAttribute("aria-label", "Search tasks by name or ID");
+  cell.append(input);
+  return cell;
+}
+
+function filterSelectCell(field, options, allLabel, column = field) {
+  const cell = document.createElement("td");
+  cell.dataset.column = column;
+  const select = document.createElement("select");
+  select.className = "filter-input";
+  select.dataset.taskFilter = field;
+
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = allLabel;
+  select.append(allOption);
+
+  options.forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  });
+
+  select.value = taskFilters[field];
+  cell.append(select);
+  return cell;
+}
+
 function renderTable(analysis) {
   taskTableBody.textContent = "";
+  renderTaskFilterRow();
 
   if (!state.tasks.length) {
     const row = document.createElement("tr");
@@ -125,9 +219,22 @@ function renderTable(analysis) {
     return;
   }
 
+  const filteredTasks = getFilteredTasks();
+  if (!filteredTasks.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = getVisibleColumnCount();
+    cell.className = "filter-empty";
+    cell.textContent = "No tasks match the current filters.";
+    row.append(cell);
+    taskTableBody.append(row);
+    applyTableColumnSettings();
+    return;
+  }
+
   const warningsByTask = groupWarningsByTask(analysis.warnings);
-  const tree = getTaskGroupTree();
-  const projectRollup = getGroupRollup(state.tasks);
+  const tree = getTaskGroupTree(filteredTasks);
+  const projectRollup = getGroupRollup(filteredTasks);
   const rootGroupPaths = getRootGroupPaths();
   const allGroupsCollapsed = rootGroupPaths.length > 0 && rootGroupPaths.every((path) => isGroupCollapsed(path));
 
@@ -135,13 +242,12 @@ function renderTable(analysis) {
   projectRow.className = "table-group-row table-project-row";
   projectRow.append(
     groupEmptyCell("id"),
-    projectTitleCell(state.tasks.length, allGroupsCollapsed),
+    projectTitleCell(filteredTasks.length, allGroupsCollapsed, filteredTasks.length !== state.tasks.length ? state.tasks.length : 0),
     groupEmptyCell("group"),
     groupEmptyCell("type"),
     groupEmptyCell("owner"),
     groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.start) : "", "start"),
-    groupRollupCell(projectRollup.range ? `${projectRollup.businessDays}d` : "", "duration"),
-    groupRollupCell(projectRollup.totalEffort != null ? String(projectRollup.totalEffort) : "", "effort"),
+    groupRollupCell(formatGroupDaysEffort(projectRollup), "duration"),
     groupEmptyCell("effortLevel"),
     groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
@@ -186,8 +292,7 @@ function renderGroupRow(node, depth, parentPath, warningsByTask) {
     groupEmptyCell("type"),
     groupEmptyCell("owner"),
     groupStartDateCell(node.path, rollup),
-    groupRollupCell(rollup.range ? `${rollup.businessDays}d` : "", "duration"),
-    groupRollupCell(rollup.totalEffort != null ? String(rollup.totalEffort) : "", "effort"),
+    groupRollupCell(formatGroupDaysEffort(rollup), "duration"),
     groupEmptyCell("effortLevel"),
     groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
@@ -224,7 +329,6 @@ function renderTaskRow(task, warningsByTask) {
     inputCell(task, "owner", "text", "owner"),
     inputCell(task, "startDate", "date", "start"),
     inputCell(task, "duration", "number", "duration"),
-    inputCell(task, "effortEstimate", "number", "effort"),
     effortLevelCell(task),
     readOnlyCell(getFinishDate(task), "finish"),
     inputCell(task, "dependsOn", "text", "dependsOn"),
@@ -287,7 +391,7 @@ function groupNameInput(groupPath) {
   return input;
 }
 
-function projectTitleCell(taskCount, collapsed) {
+function projectTitleCell(taskCount, collapsed, totalCount = 0) {
   const cell = document.createElement("td");
   cell.dataset.column = "title";
   const wrapper = document.createElement("div");
@@ -305,16 +409,25 @@ function projectTitleCell(taskCount, collapsed) {
   name.className = "project-name-label";
   name.textContent = state.projectName || "Project";
 
-  wrapper.append(toggle, name, groupCountBadge(taskCount));
+  wrapper.append(toggle, name, groupCountBadge(taskCount, totalCount));
   cell.append(wrapper);
   return cell;
 }
 
-function groupCountBadge(taskCount) {
+function groupCountBadge(taskCount, totalCount = 0) {
   const span = document.createElement("span");
   span.className = "group-count";
-  span.textContent = `${taskCount} task${taskCount === 1 ? "" : "s"}`;
+  span.textContent = totalCount
+    ? `${taskCount} of ${totalCount} task${totalCount === 1 ? "" : "s"}`
+    : `${taskCount} task${taskCount === 1 ? "" : "s"}`;
   return span;
+}
+
+// "Days" (businessDays) is the group's elapsed calendar span; "fte" (totalEffort) is the
+// sum of every task's own duration - they diverge once tasks in the group overlap.
+function formatGroupDaysEffort(rollup) {
+  if (!rollup.range) return "";
+  return rollup.totalEffort > 0 ? `${rollup.businessDays}d / ${rollup.totalEffort} fte` : `${rollup.businessDays}d`;
 }
 
 function groupRollupCell(value, column, title = "") {
@@ -397,10 +510,6 @@ function createTaskInput(task, field, type) {
     input.step = "1";
     input.disabled = isMilestoneType(task.type);
     input.title = isMilestoneType(task.type) ? "Milestones are one day markers." : "";
-  } else if (field === "effortEstimate") {
-    input.min = "0";
-    input.step = "any";
-    input.placeholder = "-";
   }
   return input;
 }

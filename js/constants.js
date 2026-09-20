@@ -4,6 +4,7 @@ const DEVOPS_TOKEN_KEY = "simple-gantt-devops-token-v1";
 const BOARD_SPLIT_KEY = "simple-gantt-board-split-v1";
 const COLLAPSED_GROUPS_KEY = "simple-gantt-collapsed-groups-v1";
 const COLUMN_SETTINGS_KEY = "simple-gantt-column-settings-v1";
+const TASK_FILTERS_KEY = "simple-gantt-task-filters-v1";
 const DEVOPS_COLLAPSED_GROUPS_KEY = "simple-gantt-devops-collapsed-groups-v1";
 const VIEW_KEY = "simple-gantt-view-v1";
 const GANTT_ZOOM_KEY = "simple-gantt-zoom-v1";
@@ -32,6 +33,13 @@ const statusOptions = [
   ["done", "Done"]
 ];
 
+const dueBucketOptions = [
+  ["overdue", "Overdue"],
+  ["this-week", "This week"],
+  ["later", "Later"],
+  ["none", "No due date"]
+];
+
 // Ticket duration/estimates aren't reliably filled in, so progress is tracked by workflow
 // status instead: each raw DevOps state maps to how far through the pipeline it represents.
 const STATUS_PROGRESS_FACTORS = {
@@ -54,10 +62,10 @@ const STATUS_PROGRESS_FACTORS = {
   "removed": 1
 };
 
-// Azure DevOps' Custom.EffortEstimate field is a qualitative picklist, not a number -
-// kept separate from the day-based effortEstimate the plan tracks itself. This list is
-// just the canonical/default options; getEffortLevelOptions() also picks up any other
-// value already in use, same as statusOptions/typeOptions do.
+// Azure DevOps' Custom.EffortEstimate field is a qualitative picklist (Low/Medium/High),
+// independent of the plan's own Duration (days) field. This list is just the
+// canonical/default options; getEffortLevelOptions() also picks up any other value
+// already in use, same as statusOptions/typeOptions do.
 const effortLevelOptions = [
   ["", "-"],
   ["Low", "Low"],
@@ -96,8 +104,7 @@ const taskColumns = [
   { key: "type", label: "Type", width: 122, min: 100 },
   { key: "owner", label: "Owner", width: 96, min: 80 },
   { key: "start", label: "Start", width: 140, min: 110 },
-  { key: "duration", label: "Days", width: 78, min: 64 },
-  { key: "effort", label: "Effort", width: 90, min: 64 },
+  { key: "duration", label: "Days", width: 110, min: 78 },
   { key: "effortLevel", label: "Effort Level", width: 100, min: 80 },
   { key: "finish", label: "Finish", width: 118, min: 100 },
   { key: "dependsOn", label: "Depends on", width: 156, min: 110 },

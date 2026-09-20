@@ -11,6 +11,15 @@ function renderGantt(analysis) {
     return;
   }
 
+  const filteredTasks = getFilteredTasks();
+  if (!filteredTasks.length) {
+    const empty = document.createElement("div");
+    empty.className = "filter-empty";
+    empty.textContent = "No tasks match the current filters.";
+    gantt.append(empty);
+    return;
+  }
+
   const days = enumerateDays(analysis.range.start, analysis.range.end);
   const dayWidth = GANTT_ZOOM_LEVELS[currentZoom] || GANTT_ZOOM_LEVELS.day;
   const columnsTemplate = `repeat(${days.length}, minmax(${dayWidth}px, 1fr))`;
@@ -21,7 +30,10 @@ function renderGantt(analysis) {
 
   const header = document.createElement("div");
   header.className = "gantt-header";
-  header.append(labelCell("Task", ""));
+
+  const headerMain = document.createElement("div");
+  headerMain.className = "gantt-header-main";
+  headerMain.append(labelCell("Task", ""));
 
   const axis = document.createElement("div");
   axis.className = "axis";
@@ -53,12 +65,18 @@ function renderGantt(analysis) {
     });
   }
 
-  header.append(axis);
+  headerMain.append(axis);
+  header.append(headerMain);
+
+  const headerSpacer = document.createElement("div");
+  headerSpacer.className = "gantt-header-spacer";
+  header.append(headerSpacer);
+
   inner.append(header);
 
   const warningTasks = groupWarningsByTask(analysis.warnings);
-  const tree = getTaskGroupTree();
-  const projectRollup = getGroupRollup(state.tasks);
+  const tree = getTaskGroupTree(filteredTasks);
+  const projectRollup = getGroupRollup(filteredTasks);
 
   const projectRow = document.createElement("div");
   projectRow.className = "gantt-group-row gantt-project-row";
