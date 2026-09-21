@@ -8,7 +8,6 @@ const openColumnsBtn = document.querySelector("#openColumnsBtn");
 const togglePlanningBoardBtn = document.querySelector("#togglePlanningBoardBtn");
 const addPlanningMonthBtn = document.querySelector("#addPlanningMonthBtn");
 const ganttZoomToggle = document.querySelector("#ganttZoomToggle");
-const openDevopsBtn = document.querySelector("#openDevopsBtn");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const toggleAllGroupsBtn = document.querySelector("#toggleAllGroupsBtn");
@@ -71,7 +70,6 @@ function render() {
   renderViewToggle();
   renderChecksToggle(analysis);
   renderGroupsToggle();
-  renderDevopsButton();
   clearFiltersBtn.hidden = !isAnyTaskFilterActive(taskFilters);
   renderSummary(analysis);
   renderTable(analysis);
@@ -93,12 +91,6 @@ function renderViewToggle() {
   ganttZoomToggle.querySelectorAll("[data-zoom]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.zoom === currentZoom));
   });
-}
-
-function renderDevopsButton() {
-  const counts = getDevopsInboxCounts();
-  const activeCount = counts.new + counts.changed;
-  openDevopsBtn.textContent = activeCount ? `DevOps sync (${activeCount})` : "DevOps sync";
 }
 
 function applySavedBoardSplit() {
@@ -381,10 +373,6 @@ boardResizer.addEventListener("keydown", (event) => {
   setBoardSplit(next);
 });
 
-openDevopsBtn.addEventListener("click", async () => {
-  await syncDevopsInbox("saved");
-});
-
 openDevopsOptionsBtn.addEventListener("click", () => {
   renderDevopsPanel();
   devopsDialog.showModal();
@@ -408,7 +396,7 @@ devopsProjectStartInput.addEventListener("change", () => {
 });
 
 syncDevopsBtn.addEventListener("click", async () => {
-  await syncDevopsInbox("form");
+  await syncDevopsInbox();
 });
 
 syncSelectedDevopsBtn.addEventListener("click", () => {

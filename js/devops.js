@@ -353,16 +353,12 @@ function isActionableDevopsItem(item) {
   return item.status === "new" || item.status === "changed";
 }
 
-async function syncDevopsInbox(source = "form") {
-  const config = source === "saved" ? getSavedDevopsConfig() : getDevopsFormConfig();
-  const token = source === "saved" ? localStorage.getItem(DEVOPS_TOKEN_KEY) || "" : devopsTokenInput.value.trim();
+async function syncDevopsInbox() {
+  const config = getDevopsFormConfig();
+  const token = devopsTokenInput.value.trim();
 
   if (!config.org || !config.project || !token) {
     setDevopsStatus("Organization, project, and token are required.", true);
-    if (source === "saved") {
-      renderDevopsPanel();
-      devopsDialog.showModal();
-    }
     return;
   }
 
@@ -370,7 +366,6 @@ async function syncDevopsInbox(source = "form") {
   localStorage.setItem(DEVOPS_TOKEN_KEY, token);
   setDevopsStatus("Fetching work item IDs...");
   syncDevopsBtn.disabled = true;
-  openDevopsBtn.disabled = true;
 
   try {
     const ids = await fetchDevopsWorkItemIds(config, token);
@@ -387,18 +382,7 @@ async function syncDevopsInbox(source = "form") {
     setDevopsStatus(error.message || "DevOps sync failed.", true);
   } finally {
     syncDevopsBtn.disabled = false;
-    openDevopsBtn.disabled = false;
   }
-}
-
-function getSavedDevopsConfig() {
-  const config = state.devops.config || {};
-  return {
-    org: config.org || DEFAULT_DEVOPS_ORG,
-    project: config.project || DEFAULT_DEVOPS_PROJECT,
-    projectStartDate: isIsoDate(config.projectStartDate) ? config.projectStartDate : toIsoDate(new Date()),
-    wiql: config.wiql || DEFAULT_WIQL
-  };
 }
 
 function getDevopsFormConfig() {
@@ -562,12 +546,29 @@ function mergeDevopsInbox(items) {
       return { ...base, status: "new" };
     }
 
-    if (existingTask.externalSignature !== item.signature) {
+    if (isDevopsTaskOutOfSync(existingTask, item)) {
       return { ...base, status: "changed", localTaskId: existingTask.id };
     }
 
     return { ...base, status: "imported", localTaskId: existingTask.id };
   });
+}
+
+// A ticket counts as "changed" if DevOps has moved on since the last sync (signature
+// drift) OR the local task no longer matches what DevOps currently says for the fields
+// a sync actually applies (name/status/owner/effortLevel/dueDate/type). The second check
+// matters because a local edit to one of those fields - e.g. hand-picking a new value in
+// the Status dropdown - doesn't touch DevOps's signature at all, so without this a
+// drifted ticket would never be flagged as needing an update again.
+function isDevopsTaskOutOfSync(task, item) {
+  if (task.externalSignature !== item.signature) return true;
+  if (task.name !== item.title) return true;
+  if (task.status !== getDevopsStatus(item.state)) return true;
+  if (task.owner !== (item.assignedTo || "")) return true;
+  if (task.effortLevel !== (item.effortLevel || "")) return true;
+  if (task.dueDate !== (item.dueDate || "")) return true;
+  if (task.type !== getDevopsTaskType(item.workItemType, item.title)) return true;
+  return false;
 }
 
 function addDevopsItemToPlan(item, row) {
@@ -613,14 +614,17 @@ function applyDevopsUpdate(item) {
       if (candidate.dependsOn === previousTaskId) candidate.dependsOn = task.taskId;
     });
   }
-  // Once a task is imported, the plan owns type/group/dates - resyncing only pulls
-  // title, status, owner, and effort level, since those are the fields DevOps stays
-  // authoritative on. The rest is metadata needed to keep sync/linking working, not
-  // plan content.
+  // Once a task is imported, the plan owns group/schedule (start date, duration) -
+  // resyncing only pulls title, status, owner, effort level, due date, and type, since
+  // those are the fields DevOps stays authoritative on. The rest is metadata needed to
+  // keep sync/linking working, not plan content.
   task.name = item.title;
   task.status = getDevopsStatus(item.state);
   task.owner = item.assignedTo || "";
   task.effortLevel = item.effortLevel || "";
+  task.dueDate = item.dueDate || "";
+  task.type = getDevopsTaskType(item.workItemType, item.title);
+  if (isMilestoneType(task.type)) task.duration = 1;
   task.externalUrl = item.url;
   task.externalSignature = item.signature;
   task.externalChangedDate = item.changedDate;
@@ -644,7 +648,7 @@ function ignoreDevopsItem(item) {
 function unignoreDevopsItem(item) {
   state.devops.ignoredIds = state.devops.ignoredIds.filter((id) => String(id) !== String(item.externalId));
   const task = state.tasks.find((candidate) => candidate.source === "azure-devops" && String(candidate.externalId) === String(item.externalId));
-  item.status = task ? (task.externalSignature !== item.signature ? "changed" : "imported") : "new";
+  item.status = task ? (isDevopsTaskOutOfSync(task, item) ? "changed" : "imported") : "new";
 }
 
 function normalizeDevopsState(devops) {
@@ -803,7 +807,10 @@ function getDevopsStatus(value) {
 
 function getDevopsTaskType(type, title) {
   const workItemType = normalizeTaskType(type);
-  if (workItemType !== "task") return workItemType;
+  // DevOps always sends "Task" (capitalized); comparing that against the lowercase "task"
+  // canonical value used internally silently skipped the milestone-by-title check below
+  // for every real synced Task, so it never actually fired outside of hand-typed data.
+  if (workItemType.toLowerCase() !== "task") return workItemType;
   return /milestone/i.test(title || "") ? "milestone" : "task";
 }
 
