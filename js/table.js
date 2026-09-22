@@ -665,7 +665,6 @@ function moveDraggedTask(sourceId, targetRow, position) {
   if (state.tasks.every((task, index) => task.id === remaining[index]?.id)) return false;
 
   state.tasks = remaining;
-  if (previousGroupName !== targetGroupName) autoSchedule([sourceTask.id]);
   return true;
 }
 

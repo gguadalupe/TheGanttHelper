@@ -204,11 +204,6 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
   saveAndRender();
 });
 
-document.querySelector("#autoScheduleBtn").addEventListener("click", () => {
-  autoSchedule();
-  saveAndRender();
-});
-
 togglePlanningBoardBtn.addEventListener("click", () => {
   currentView = currentView === "planning" ? "schedule" : "planning";
   localStorage.setItem(VIEW_KEY, currentView);
@@ -563,10 +558,6 @@ taskTableBody.addEventListener("change", (event) => {
 
   if (field === "dependsOn" && task.dependsOn === task.taskId) {
     task.dependsOn = "";
-  }
-
-  if (field === "dependsOn" || field === "dueDate" || field === "duration") {
-    autoSchedule();
   }
 
   saveAndRender();

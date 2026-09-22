@@ -285,15 +285,12 @@ function replaceGroupPathPrefix(candidatePath, previousSegments, nextSegments) {
 
 function shiftGroupDates(groupPath, dayDelta) {
   if (!dayDelta) return;
-  const shiftedTaskIds = [];
   state.tasks.forEach((task) => {
     if (!isGroupPathOrDescendant(task.group, groupPath)) return;
     if (!isIsoDate(task.startDate)) return;
     task.startDate = addCalendarDays(task.startDate, dayDelta);
     task.planningMonth = task.startDate.slice(0, 7);
-    shiftedTaskIds.push(task.id);
   });
-  autoSchedule(shiftedTaskIds);
 }
 
 function shiftTaskDate(taskId, dayDelta) {
@@ -302,7 +299,6 @@ function shiftTaskDate(taskId, dayDelta) {
   if (!task || !isIsoDate(task.startDate)) return;
   task.startDate = addCalendarDays(task.startDate, dayDelta);
   task.planningMonth = task.startDate.slice(0, 7);
-  autoSchedule([taskId]);
 }
 
 function renameTaskGroup(previousPathRaw, nextPathRaw) {
@@ -603,67 +599,6 @@ function analyzeTasks() {
   return { warnings, range, projectFinish, capacity };
 }
 
-function autoSchedule(excludeTaskIds = []) {
-  const exclude = new Set(excludeTaskIds);
-  const { taskByTaskId, cycles, ordered } = orderTasksByDependencies();
-
-  ordered.forEach((task) => {
-    // A task just placed by hand (dragged, or dropped into a new group) keeps the date
-    // it was put on, warning and all - same as typing a Start date directly already
-    // does. Everything else, including anything that depends on this task, still gets
-    // the normal push/pull treatment below.
-    if (exclude.has(task.id)) return;
-
-    if (isIsoDate(task.dueDate)) {
-      // Due dates take priority over dependency pushes: schedule backward from the
-      // deadline so Start always answers "when does this need to start to land on
-      // time, given its duration?" - even if that lands before a dependency finishes.
-      // That conflict isn't hidden - it surfaces as the existing "starts before X
-      // finishes" Link warning in analyzeTasks, same as any other scheduling conflict.
-      const span = isMilestoneType(task.type) ? 0 : Math.max(1, task.duration) - 1;
-      task.startDate = addBusinessDays(task.dueDate, -span);
-      task.planningMonth = task.startDate.slice(0, 7);
-      return;
-    }
-
-    if (!task.dependsOn || cycles.has(task.id)) return;
-    const dependency = taskByTaskId.get(task.dependsOn);
-    if (!dependency) return;
-    const earliest = addBusinessDays(getFinishDate(dependency), 1);
-    if (compareDates(task.startDate, earliest) < 0) {
-      task.startDate = earliest;
-      task.planningMonth = task.startDate.slice(0, 7);
-    }
-  });
-}
-
-function orderTasksByDependencies() {
-  const taskByTaskId = getTaskIdMap();
-  const cycles = findCycleTaskIds(taskByTaskId);
-  const ordered = getDependencyOrderedTasks(taskByTaskId, cycles);
-  state.tasks = ordered;
-  return { taskByTaskId, cycles, ordered };
-}
-
-function getDependencyOrderedTasks(taskByTaskId, cycles) {
-  const ordered = [];
-  const seen = new Set();
-
-  state.tasks.forEach((task) => visit(task));
-  return ordered;
-
-  function visit(task) {
-    if (seen.has(task.id)) return;
-    seen.add(task.id);
-
-    const dependency = task.dependsOn && !cycles.has(task.id)
-      ? taskByTaskId.get(task.dependsOn)
-      : null;
-
-    if (dependency) visit(dependency);
-    ordered.push(task);
-  }
-}
 
 function findCycleTaskIds(taskByTaskId) {
   const visiting = new Set();
