@@ -477,8 +477,23 @@ function taskNameCell(task, warnings = []) {
   wrapper.append(handle);
   if (warnings.length) wrapper.append(taskWarningButton(task, warnings));
   wrapper.append(input);
+  const externalLink = taskExternalLink(task);
+  if (externalLink) wrapper.append(externalLink);
   cell.append(wrapper);
   return cell;
+}
+
+function taskExternalLink(task) {
+  if (task.source !== "azure-devops" || !task.externalUrl) return null;
+  const link = document.createElement("a");
+  link.className = "task-external-link";
+  link.href = task.externalUrl;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "↗";
+  link.title = `Open Azure DevOps #${task.externalId || task.taskId}`;
+  link.setAttribute("aria-label", link.title);
+  return link;
 }
 
 function taskWarningButton(task, warnings) {
