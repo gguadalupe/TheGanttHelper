@@ -285,13 +285,24 @@ function replaceGroupPathPrefix(candidatePath, previousSegments, nextSegments) {
 
 function shiftGroupDates(groupPath, dayDelta) {
   if (!dayDelta) return;
+  const shiftedTaskIds = [];
   state.tasks.forEach((task) => {
     if (!isGroupPathOrDescendant(task.group, groupPath)) return;
     if (!isIsoDate(task.startDate)) return;
     task.startDate = addCalendarDays(task.startDate, dayDelta);
     task.planningMonth = task.startDate.slice(0, 7);
+    shiftedTaskIds.push(task.id);
   });
-  autoSchedule();
+  autoSchedule(shiftedTaskIds);
+}
+
+function shiftTaskDate(taskId, dayDelta) {
+  if (!dayDelta) return;
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task || !isIsoDate(task.startDate)) return;
+  task.startDate = addCalendarDays(task.startDate, dayDelta);
+  task.planningMonth = task.startDate.slice(0, 7);
+  autoSchedule([taskId]);
 }
 
 function renameTaskGroup(previousPathRaw, nextPathRaw) {
@@ -592,10 +603,17 @@ function analyzeTasks() {
   return { warnings, range, projectFinish, capacity };
 }
 
-function autoSchedule() {
+function autoSchedule(excludeTaskIds = []) {
+  const exclude = new Set(excludeTaskIds);
   const { taskByTaskId, cycles, ordered } = orderTasksByDependencies();
 
   ordered.forEach((task) => {
+    // A task just placed by hand (dragged, or dropped into a new group) keeps the date
+    // it was put on, warning and all - same as typing a Start date directly already
+    // does. Everything else, including anything that depends on this task, still gets
+    // the normal push/pull treatment below.
+    if (exclude.has(task.id)) return;
+
     if (isIsoDate(task.dueDate)) {
       // Due dates take priority over dependency pushes: schedule backward from the
       // deadline so Start always answers "when does this need to start to land on

@@ -341,7 +341,6 @@ function syncDevopsInboxItems(mode) {
   });
 
   if (synced) {
-    orderTasksByDependencies();
     saveAndRender();
     renderDevopsPanel();
   }

@@ -201,7 +201,8 @@ function renderGanttTaskRow(task, context) {
         warningTasks.has(task.id) ? "warning" : ""
       ].filter(Boolean).join(" ");
       milestone.style.gridColumn = `${startIndex + 1}`;
-      milestone.title = `${task.name || "Untitled milestone"}: ${formatShortDate(task.startDate)}`;
+      milestone.dataset.taskId = task.id;
+      milestone.title = `${task.name || "Untitled milestone"}: ${formatShortDate(task.startDate)} (drag to reschedule)`;
       milestone.setAttribute("aria-label", milestone.title);
       taskTrack.append(milestone);
     } else {
@@ -213,8 +214,9 @@ function renderGanttTaskRow(task, context) {
         warningTasks.has(task.id) ? "warning" : ""
       ].filter(Boolean).join(" ");
       bar.style.gridColumn = `${startIndex + 1} / span ${finishIndex - startIndex + 1}`;
+      bar.dataset.taskId = task.id;
       bar.textContent = task.name || "Untitled task";
-      bar.title = `${task.name || "Untitled task"}: ${formatShortDate(task.startDate)} to ${formatShortDate(finishDate)}`;
+      bar.title = `${task.name || "Untitled task"}: ${formatShortDate(task.startDate)} to ${formatShortDate(finishDate)} (drag to reschedule)`;
       taskTrack.append(bar);
     }
   }

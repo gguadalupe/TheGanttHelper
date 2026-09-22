@@ -53,7 +53,7 @@ let draggedGroupName = "";
 let draggedGroupParentPath = "";
 let draggedBoardTaskId = "";
 let boardResizeActive = false;
-let groupBarDrag = null;
+let ganttBarDrag = null;
 let collapsedGroups = loadCollapsedGroups();
 let columnSettings = loadColumnSettings();
 let collapsedDevopsGroups = loadCollapsedDevopsGroups();
@@ -232,13 +232,17 @@ ganttZoomToggle.addEventListener("click", (event) => {
 });
 
 gantt.addEventListener("pointerdown", (event) => {
-  const bar = event.target.closest(".group-summary-bar");
+  const groupBar = event.target.closest(".group-summary-bar");
+  const taskBar = groupBar ? null : event.target.closest(".bar, .milestone");
+  const bar = groupBar || taskBar;
   if (!bar) return;
   event.preventDefault();
   bar.setPointerCapture(event.pointerId);
-  groupBarDrag = {
+  ganttBarDrag = {
     pointerId: event.pointerId,
-    groupName: bar.dataset.groupName,
+    kind: groupBar ? "group" : "task",
+    groupName: groupBar ? groupBar.dataset.groupName : "",
+    taskId: taskBar ? taskBar.dataset.taskId : "",
     startX: event.clientX,
     dayWidth: GANTT_ZOOM_LEVELS[currentZoom] || GANTT_ZOOM_LEVELS.day,
     dayDelta: 0,
@@ -248,33 +252,40 @@ gantt.addEventListener("pointerdown", (event) => {
 });
 
 gantt.addEventListener("pointermove", (event) => {
-  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
-  const deltaX = event.clientX - groupBarDrag.startX;
-  const dayDelta = Math.round(deltaX / groupBarDrag.dayWidth);
-  groupBarDrag.dayDelta = dayDelta;
-  groupBarDrag.bar.style.transform = dayDelta ? `translateX(${dayDelta * groupBarDrag.dayWidth}px)` : "";
+  if (!ganttBarDrag || event.pointerId !== ganttBarDrag.pointerId) return;
+  const deltaX = event.clientX - ganttBarDrag.startX;
+  const dayDelta = Math.round(deltaX / ganttBarDrag.dayWidth);
+  ganttBarDrag.dayDelta = dayDelta;
+  const offset = dayDelta ? `translateX(${dayDelta * ganttBarDrag.dayWidth}px)` : "";
+  // Milestones are diamonds via `rotate(45deg)` in their base CSS; translating first (in
+  // the untouched screen coordinate space) and rotating after keeps the drag moving
+  // horizontally instead of along the rotated axis.
+  ganttBarDrag.bar.style.transform = ganttBarDrag.bar.classList.contains("milestone")
+    ? `${offset} rotate(45deg)`
+    : offset;
 });
 
 gantt.addEventListener("pointerup", (event) => {
-  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
-  const { groupName, dayDelta, bar, pointerId } = groupBarDrag;
+  if (!ganttBarDrag || event.pointerId !== ganttBarDrag.pointerId) return;
+  const { kind, groupName, taskId, dayDelta, bar, pointerId } = ganttBarDrag;
   if (bar.hasPointerCapture(pointerId)) bar.releasePointerCapture(pointerId);
   bar.classList.remove("dragging");
   bar.style.transform = "";
-  groupBarDrag = null;
+  ganttBarDrag = null;
   if (dayDelta) {
-    shiftGroupDates(groupName, dayDelta);
+    if (kind === "group") shiftGroupDates(groupName, dayDelta);
+    else shiftTaskDate(taskId, dayDelta);
     saveAndRender();
   }
 });
 
 gantt.addEventListener("pointercancel", (event) => {
-  if (!groupBarDrag || event.pointerId !== groupBarDrag.pointerId) return;
-  const { bar, pointerId } = groupBarDrag;
+  if (!ganttBarDrag || event.pointerId !== ganttBarDrag.pointerId) return;
+  const { bar, pointerId } = ganttBarDrag;
   if (bar.hasPointerCapture(pointerId)) bar.releasePointerCapture(pointerId);
   bar.classList.remove("dragging");
   bar.style.transform = "";
-  groupBarDrag = null;
+  ganttBarDrag = null;
 });
 
 toggleChecksBtn.addEventListener("click", () => {
@@ -450,10 +461,8 @@ devopsInboxList.addEventListener("click", (event) => {
 
   if (action === "add") {
     addDevopsItemToPlan(inboxItem, event.target.closest(".inbox-item"));
-    orderTasksByDependencies();
   } else if (action === "update") {
     applyDevopsUpdate(inboxItem);
-    orderTasksByDependencies();
   } else if (action === "resetName") {
     resetDevopsTaskName(inboxItem);
   } else if (action === "ignore") {
