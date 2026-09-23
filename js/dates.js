@@ -64,32 +64,6 @@ function compareDates(a, b) {
   return a.localeCompare(b);
 }
 
-function normalizePlanningMonth(value, fallbackDate = "") {
-  if (typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return value;
-  return isIsoDate(fallbackDate) ? fallbackDate.slice(0, 7) : "";
-}
-
-function comparePlanningMonths(a, b) {
-  return a.localeCompare(b);
-}
-
-function addMonths(month, count) {
-  const [year, monthIndex] = month.split("-").map(Number);
-  const date = new Date(Date.UTC(year, monthIndex - 1 + count, 1));
-  return date.toISOString().slice(0, 7);
-}
-
-function formatPlanningMonth(month) {
-  const date = parseIsoDate(`${month}-01`);
-  return new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric", timeZone: "UTC" }).format(date);
-}
-
-function getBusinessDaysInMonth(month) {
-  const start = `${month}-01`;
-  const end = addCalendarDays(`${addMonths(month, 1)}-01`, -1);
-  return countBusinessDays(start, end);
-}
-
 function formatShortDate(isoDate) {
   if (!isIsoDate(isoDate)) return "";
   const date = parseIsoDate(isoDate);

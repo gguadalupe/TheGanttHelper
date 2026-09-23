@@ -11,8 +11,11 @@
   --accent-soft: #dff2f8;
   --green: #2f855a;
   --amber: #b7791f;
+  --amber-soft: #fdf3e6;
   --red: #c53030;
   --red-soft: #fff0f0;
+  --yellow: #d4ac0d;
+  --yellow-soft: #fdf6d8;
   --weekend: #f0f3f5;
   --today: #d13f2f;
   --shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
@@ -247,128 +250,14 @@ button.danger {
   display: grid;
   grid-template-columns: minmax(420px, var(--task-pane-width)) 8px minmax(420px, 1fr);
   align-items: stretch;
-  max-height: calc(100vh - 116px);
-  overflow-y: auto;
-}
-
-.planning-board {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(260px, 1fr);
-  gap: 10px;
-  max-height: calc(100vh - 116px);
-  overflow: auto;
-  padding: 10px;
-  background: #f6f8fa;
-}
-
-.board-column {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  min-height: 520px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-}
-
-.board-column.drop-target {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px rgba(24, 119, 242, 0.14);
-}
-
-.board-column.done {
-  background: #f5fbf7;
-}
-
-.board-column-header {
-  padding: 10px;
-  border-bottom: 1px solid var(--line);
-  background: #eef4f7;
-}
-
-.board-column-header h3 {
-  margin: 0 0 4px;
-  font-size: 14px;
-}
-
-.board-column-header p,
-.board-empty,
-.board-card p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.board-cards {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 8px;
-  overflow-y: auto;
-}
-
-.board-card {
-  display: grid;
-  gap: 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  padding: 9px;
-  cursor: grab;
-}
-
-.board-card.dragging {
-  opacity: 0.55;
-}
-
-.board-card.has-warning {
-  border-color: #e8a3a3;
-  background: #fff8f8;
-}
-
-.board-card.done {
-  opacity: 0.72;
-}
-
-.board-card h4 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.3;
-}
-
-.board-card-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.board-pill {
-  display: inline-flex;
-  max-width: 100%;
-  border-radius: 999px;
-  background: #eef3f6;
-  color: var(--muted);
-  padding: 3px 7px;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.board-pill.warning {
-  background: var(--red-soft);
-  color: var(--red);
 }
 
 .table-wrap {
   min-width: 0;
   height: 100%;
+  max-height: calc(100vh - 116px);
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
 }
 
 .board-resizer {
@@ -407,7 +296,8 @@ body.resizing-board {
 
 .task-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
   min-width: 1420px;
   font-size: 13px;
@@ -415,10 +305,20 @@ body.resizing-board {
 
 .task-table th,
 .task-table td {
-  border: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 3px 4px;
   vertical-align: middle;
   text-align: left;
+}
+
+.task-table th:first-child,
+.task-table td:first-child {
+  border-left: 1px solid var(--line);
+}
+
+.task-table thead th {
+  border-top: 1px solid var(--line);
 }
 
 .task-table th {
@@ -471,6 +371,113 @@ body.resizing-board {
   font-size: 13px;
 }
 
+.status-filter-trigger {
+  /* Overrides the generic button's min-height: 36px (styles.css:48), which otherwise
+     wins over .filter-input's height: 26px and makes the filter row taller than the
+     Gantt header's matching spacer - throwing every table row out of sync with its
+     Gantt row below it. */
+  min-height: 26px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.status-filter-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-filter-trigger::after {
+  content: "▾";
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.status-filter-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+/* Lives on <body> (see ensureStatusFilterMenu in table.js), not inside the table, so
+   position: fixed here escapes the table pane's overflow clipping and this z-index
+   compares against the whole page instead of being trapped inside the filter row's
+   own (sticky, z-index: 2) stacking context. Position/width are set via JS to track
+   the trigger button. */
+.status-filter-menu {
+  position: fixed;
+  z-index: 50;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.16);
+}
+
+.status-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  /* Lets this grid item shrink below its label's natural width instead of forcing
+     the menu wider (grid/flex items default to min-width: auto, which otherwise
+     defeats the child span's ellipsis below and forces a horizontal scrollbar). */
+  min-width: 0;
+}
+
+.status-filter-option input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.status-filter-option span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-filter-option:hover {
+  background: var(--accent-soft);
+}
+
+.status-filter-empty {
+  margin: 0;
+  padding: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.status-filter-actions button {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .task-table tbody tr:not(.table-group-row),
 .gantt-row {
   height: 42px;
@@ -481,20 +488,61 @@ body.resizing-board {
   height: 34px;
 }
 
+/* Placed before .has-warning/.done/.milestone-task below so those all naturally win
+   ties by source order alone, matching the Gantt bar's own color precedence (a bar
+   is amber for "in progress" but red/green/blue take priority when they also apply). */
+.task-table tr.in-progress {
+  background: var(--amber-soft);
+}
+
+.task-table tr.in-progress td:first-child {
+  box-shadow: inset 4px 0 0 var(--amber);
+}
+
 .task-table tr.has-warning {
   background: var(--red-soft);
+}
+
+/* Cell backgrounds (inputs/selects) cover almost the whole row, so the tint above is
+   barely visible - this left-edge stripe is what actually reads as "red" at a glance.
+   box-shadow instead of border-left so it doesn't shift the cell's content/width. */
+.task-table tr.has-warning td:first-child {
+  box-shadow: inset 4px 0 0 var(--red);
 }
 
 .task-table tr.done {
   background: #f0faf5;
 }
 
+.task-table tr.done td:first-child {
+  box-shadow: inset 4px 0 0 var(--green);
+}
+
 .task-table tr.milestone-task {
   background: #f8fbff;
 }
 
+.task-table tr.milestone-task td:first-child {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
 .task-table tr.has-warning.milestone-task {
   background: var(--red-soft);
+}
+
+/* Same specificity as the plain .done/.milestone-task stripes above, so without this
+   the later one (.milestone-task) would win by source order alone and paint blue over
+   what should stay red - mirrors why the background rule above exists. */
+.task-table tr.has-warning.milestone-task td:first-child {
+  box-shadow: inset 4px 0 0 var(--red);
+}
+
+.task-table tr.done.late {
+  background: var(--yellow-soft);
+}
+
+.task-table tr.done.late td:first-child {
+  box-shadow: inset 4px 0 0 var(--yellow);
 }
 
 .task-table tr.dragging {
@@ -715,6 +763,18 @@ body.resizing-board {
   background: #ffe8e8;
 }
 
+.task-table .task-warning-indicator.late {
+  border-color: #e6cf7a;
+  background: var(--yellow-soft);
+  color: #8a6d00;
+}
+
+.task-table .task-warning-indicator.late:hover,
+.task-table .task-warning-indicator.late:focus-visible {
+  border-color: var(--yellow);
+  background: #faecad;
+}
+
 .task-external-link {
   flex-shrink: 0;
   display: inline-flex;
@@ -753,8 +813,9 @@ body.resizing-board {
 .timeline-pane {
   min-width: 0;
   height: 100%;
+  max-height: calc(100vh - 116px);
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
 }
 
 .gantt-inner {
@@ -786,12 +847,14 @@ body.resizing-board {
   display: flex;
   flex-direction: column;
   height: 94px;
+  background: #fff;
 }
 
 .gantt-header-main {
   display: grid;
   grid-template-columns: 230px 1fr;
   height: 60px;
+  background: #fff;
 }
 
 /* Matches the height the table's filter row adds to its thead, so gantt rows stay
@@ -1025,6 +1088,11 @@ body.resizing-board {
   background: var(--red);
 }
 
+.bar.late {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
 .milestone {
   grid-row: 1 / span 2;
   align-self: center;
@@ -1054,6 +1122,11 @@ body.resizing-board {
 .milestone.warning {
   background: var(--red);
   box-shadow: 0 0 0 1px var(--red);
+}
+
+.milestone.late {
+  background: var(--yellow);
+  box-shadow: 0 0 0 1px var(--yellow);
 }
 
 .warnings-list {
@@ -1607,13 +1680,12 @@ body.resizing-board {
 
   .project-board {
     grid-template-columns: 1fr;
-    max-height: none;
-    overflow-y: visible;
   }
 
-  .planning-board {
-    grid-auto-columns: minmax(260px, 82vw);
+  .table-wrap,
+  .timeline-pane {
     max-height: none;
+    overflow-y: visible;
   }
 
   .board-resizer {

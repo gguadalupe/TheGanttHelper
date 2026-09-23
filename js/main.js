@@ -4,9 +4,9 @@ const projectNameInput = document.querySelector("#projectName");
 const appShell = document.querySelector(".app-shell");
 const projectBoard = document.querySelector(".project-board");
 const boardResizer = document.querySelector("#boardResizer");
+const tableWrap = document.querySelector(".table-wrap");
+const timelinePane = document.querySelector(".timeline-pane");
 const openColumnsBtn = document.querySelector("#openColumnsBtn");
-const togglePlanningBoardBtn = document.querySelector("#togglePlanningBoardBtn");
-const addPlanningMonthBtn = document.querySelector("#addPlanningMonthBtn");
 const ganttZoomToggle = document.querySelector("#ganttZoomToggle");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
@@ -16,7 +16,6 @@ const taskFilterRow = document.querySelector("#taskFilterRow");
 const projectSummary = document.querySelector("#projectSummary");
 const timelineSummary = document.querySelector("#timelineSummary");
 const taskTableBody = document.querySelector("#taskTableBody");
-const planningBoard = document.querySelector("#planningBoard");
 const gantt = document.querySelector("#gantt");
 const warningsList = document.querySelector("#warningsList");
 const warningCount = document.querySelector("#warningCount");
@@ -45,13 +44,10 @@ const devopsInboxList = document.querySelector("#devopsInboxList");
 const devopsTypeFilter = document.querySelector("#devopsTypeFilter");
 const devopsStatusFilter = document.querySelector("#devopsStatusFilter");
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
-let currentView = localStorage.getItem(VIEW_KEY) === "planning" ? "planning" : "schedule";
 let currentZoom = loadGanttZoom();
-let planningMonthCount = loadPlanningMonthCount();
 let draggedTaskId = "";
 let draggedGroupName = "";
 let draggedGroupParentPath = "";
-let draggedBoardTaskId = "";
 let boardResizeActive = false;
 let ganttBarDrag = null;
 let collapsedGroups = loadCollapsedGroups();
@@ -59,35 +55,59 @@ let columnSettings = loadColumnSettings();
 let collapsedDevopsGroups = loadCollapsedDevopsGroups();
 let taskFilters = loadTaskFilters();
 
-function saveAndRender() {
-  saveState();
-  render();
+// The expensive render scopes - gantt especially, which can build tens of thousands of
+// day-cell elements for a large synced backlog. Everything else (view toggles, summary
+// text, checks) is cheap enough to just always refresh.
+const RENDER_SCOPES = ["table", "gantt", "warnings", "capacity"];
+const RENDER_SCOPES_WITHOUT_GANTT = RENDER_SCOPES.filter((scope) => scope !== "gantt");
+
+// Fields whose value never shows up anywhere in the Gantt (bar position/span/color/
+// label, the axis range, or a bar's warning highlight) and can't move a task between
+// groups either - editing them only needs table/warnings/capacity to refresh, so it's
+// safe to skip rebuilding the Gantt's (potentially huge) day-cell grid.
+const FIELDS_WITHOUT_GANTT_IMPACT = new Set(["owner", "effortLevel", "notes"]);
+
+let pendingRenderScopes = null;
+let renderFrameScheduled = false;
+
+// Coalesces renders into one per animation frame, and lets a caller that knows exactly
+// what it touched (see handleTaskTableFieldCommit) skip scopes that can't have changed,
+// instead of rebuilding the whole UI on every single field edit.
+function scheduleRender(scopes = RENDER_SCOPES) {
+  if (!pendingRenderScopes) pendingRenderScopes = new Set();
+  scopes.forEach((scope) => pendingRenderScopes.add(scope));
+  if (renderFrameScheduled) return;
+  renderFrameScheduled = true;
+  requestAnimationFrame(() => {
+    renderFrameScheduled = false;
+    const scopes = pendingRenderScopes;
+    pendingRenderScopes = null;
+    render(scopes);
+  });
 }
 
-function render() {
+function saveAndRender(scopes = RENDER_SCOPES) {
+  saveState();
+  scheduleRender(scopes);
+}
+
+function render(scopes = RENDER_SCOPES) {
+  const scopeSet = scopes instanceof Set ? scopes : new Set(scopes);
   const analysis = analyzeTasks();
   projectNameInput.value = state.projectName;
-  renderViewToggle();
+  renderZoomToggle();
   renderChecksToggle(analysis);
   renderGroupsToggle();
   clearFiltersBtn.hidden = !isAnyTaskFilterActive(taskFilters);
   renderSummary(analysis);
-  renderTable(analysis);
-  renderGantt(analysis);
-  renderPlanningBoard(analysis);
-  renderWarnings(analysis);
-  renderCapacity(analysis);
+  if (scopeSet.has("table")) renderTable(analysis);
+  if (scopeSet.has("gantt")) renderGantt(analysis);
+  if (scopeSet.has("warnings")) renderWarnings(analysis);
+  if (scopeSet.has("capacity")) renderCapacity(analysis);
+  syncPlannerHeights();
 }
 
-function renderViewToggle() {
-  const planningActive = currentView === "planning";
-  projectBoard.hidden = planningActive;
-  planningBoard.hidden = !planningActive;
-  addPlanningMonthBtn.hidden = !planningActive;
-  ganttZoomToggle.hidden = planningActive;
-  togglePlanningBoardBtn.textContent = planningActive ? "Schedule view" : "Planning board";
-  togglePlanningBoardBtn.setAttribute("aria-pressed", String(planningActive));
-
+function renderZoomToggle() {
   ganttZoomToggle.querySelectorAll("[data-zoom]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.zoom === currentZoom));
   });
@@ -194,7 +214,6 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
     type: "task",
     owner: "",
     startDate,
-    planningMonth: startDate.slice(0, 7),
     duration: 1,
     dependsOn: lastTask ? lastTask.taskId : "",
     dueDate: "",
@@ -204,18 +223,6 @@ document.querySelector("#addTaskBtn").addEventListener("click", () => {
   saveAndRender();
 });
 
-togglePlanningBoardBtn.addEventListener("click", () => {
-  currentView = currentView === "planning" ? "schedule" : "planning";
-  localStorage.setItem(VIEW_KEY, currentView);
-  render();
-});
-
-addPlanningMonthBtn.addEventListener("click", () => {
-  planningMonthCount += 1;
-  localStorage.setItem(PLANNING_MONTH_COUNT_KEY, String(planningMonthCount));
-  render();
-});
-
 ganttZoomToggle.addEventListener("click", (event) => {
   const button = event.target.closest("[data-zoom]");
   if (!button) return;
@@ -223,7 +230,7 @@ ganttZoomToggle.addEventListener("click", (event) => {
   if (!GANTT_ZOOM_LEVELS[zoom] || zoom === currentZoom) return;
   currentZoom = zoom;
   localStorage.setItem(GANTT_ZOOM_KEY, zoom);
-  render();
+  scheduleRender();
 });
 
 gantt.addEventListener("pointerdown", (event) => {
@@ -296,7 +303,7 @@ function toggleAllGroups() {
   const allCollapsed = rootGroupPaths.length > 0 && rootGroupPaths.every((path) => isGroupCollapsed(path));
   collapsedGroups = allCollapsed ? new Set() : new Set(rootGroupPaths);
   saveCollapsedGroups();
-  render();
+  scheduleRender();
 }
 
 taskFilterRow.addEventListener("change", (event) => {
@@ -304,13 +311,57 @@ taskFilterRow.addEventListener("change", (event) => {
   if (!field) return;
   taskFilters[field] = event.target.value;
   saveTaskFilters();
-  render();
+  scheduleRender();
+});
+
+taskFilterRow.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-status-filter-trigger]")) return;
+  statusFilterMenuOpen = !statusFilterMenuOpen;
+  if (statusFilterMenuOpen) statusFilterMenuOpenedAt = Date.now();
+  scheduleRender(["table"]);
+});
+
+// The status filter menu lives on <body>, not inside taskFilterRow, so its own
+// interactions (checkboxes, Clear) are wired at the document level instead of through
+// taskFilterRow's delegated listeners above.
+document.addEventListener("change", (event) => {
+  const statusValue = event.target.dataset.statusFilterValue;
+  if (statusValue === undefined) return;
+  const selected = new Set(taskFilters.status);
+  if (event.target.checked) selected.add(statusValue);
+  else selected.delete(statusValue);
+  taskFilters.status = Array.from(selected);
+  saveTaskFilters();
+  scheduleRender();
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-status-filter-clear]")) {
+    taskFilters.status = [];
+    saveTaskFilters();
+    statusFilterMenuOpen = false;
+    scheduleRender();
+    return;
+  }
+
+  if (!statusFilterMenuOpen) return;
+  if (event.target.closest(".status-filter-menu") || event.target.closest("[data-status-filter-trigger]")) return;
+  statusFilterMenuOpen = false;
+  scheduleRender(["table"]);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && statusFilterMenuOpen) {
+    statusFilterMenuOpen = false;
+    scheduleRender(["table"]);
+  }
 });
 
 clearFiltersBtn.addEventListener("click", () => {
   taskFilters = defaultTaskFilters();
   saveTaskFilters();
-  render();
+  statusFilterMenuOpen = false;
+  scheduleRender();
 });
 
 openColumnsBtn.addEventListener("click", () => {
@@ -379,6 +430,60 @@ boardResizer.addEventListener("keydown", (event) => {
   setBoardSplit(next);
 });
 
+let syncingPaneScroll = false;
+
+function syncPaneScroll(source, target) {
+  if (syncingPaneScroll) return;
+  syncingPaneScroll = true;
+  target.scrollTop = source.scrollTop;
+  syncingPaneScroll = false;
+}
+
+// The status filter menu is position:fixed (so it can escape the pane's own
+// overflow clipping), which means it doesn't move with the table when scrolled -
+// close it instead of letting it drift away from its trigger. Ignore scrolls that
+// happen right at open time (see statusFilterMenuOpenedAt) - those are the browser's
+// own focus-scroll nudge, not the user scrolling the table.
+tableWrap.addEventListener("scroll", () => {
+  if (statusFilterMenuOpen && Date.now() - statusFilterMenuOpenedAt > 300) {
+    statusFilterMenuOpen = false;
+    scheduleRender(["table"]);
+  }
+});
+
+tableWrap.addEventListener("scroll", () => syncPaneScroll(tableWrap, timelinePane));
+timelinePane.addEventListener("scroll", () => syncPaneScroll(timelinePane, tableWrap));
+
+const PLANNER_STACKED_LAYOUT_QUERY = "(max-width: 1180px)";
+
+function applyPlannerMaxHeight(px) {
+  const value = `${px}px`;
+  tableWrap.style.maxHeight = value;
+  timelinePane.style.maxHeight = value;
+}
+
+function syncPlannerHeights() {
+  if (window.matchMedia(PLANNER_STACKED_LAYOUT_QUERY).matches) {
+    tableWrap.style.maxHeight = "";
+    timelinePane.style.maxHeight = "";
+    return;
+  }
+  const top = projectBoard.getBoundingClientRect().top;
+  let available = Math.max(240, Math.floor(window.innerHeight - top - 12));
+  applyPlannerMaxHeight(available);
+
+  // Correct for whatever chrome sits below the panes (borders, padding, scrollbar
+  // reservation) rather than assuming a fixed pixel amount - shrink exactly enough
+  // to eliminate any leftover page-level scroll.
+  const overflow = Math.ceil(document.documentElement.scrollHeight - window.innerHeight);
+  if (overflow > 0) {
+    available = Math.max(240, available - overflow);
+    applyPlannerMaxHeight(available);
+  }
+}
+
+window.addEventListener("resize", syncPlannerHeights);
+
 openDevopsOptionsBtn.addEventListener("click", () => {
   renderDevopsPanel();
   devopsDialog.showModal();
@@ -393,7 +498,11 @@ devopsTokenInput.addEventListener("change", () => {
   if (token) localStorage.setItem(DEVOPS_TOKEN_KEY, token);
 });
 
-devopsProjectStartInput.addEventListener("change", () => {
+// focusout (not change): renderDevopsPanel() rebuilds this input, and native
+// <input type="date"> fires "change" as soon as a complete date is typed - before the
+// user is necessarily done editing - so committing on "change" here has the same
+// mid-typing rebuild/focus-loss problem as the task table's date fields.
+devopsProjectStartInput.addEventListener("focusout", () => {
   state.devops.config.projectStartDate = isIsoDate(devopsProjectStartInput.value)
     ? devopsProjectStartInput.value
     : toIsoDate(new Date());
@@ -505,7 +614,19 @@ projectNameInput.addEventListener("change", () => {
   saveAndRender();
 });
 
-taskTableBody.addEventListener("change", (event) => {
+function handleTaskTableFieldCommit(event) {
+  // Native <input type="date"> fires "change" as soon as a complete date has been typed -
+  // e.g. right after the 4th digit of the year makes the value valid - even though the
+  // user may still be mid-edit (fixing a digit, etc.). Since every commit here triggers a
+  // full table re-render, which destroys and rebuilds the very input being typed into,
+  // that premature "change" was yanking focus away and leaving a half-typed date sitting
+  // there looking "wrong" and un-editable. Date inputs commit on focusout (blur) instead,
+  // which only fires once the user actually leaves the field; every other field keeps
+  // committing on "change" exactly as before.
+  const isDateInput = event.target.tagName === "INPUT" && event.target.type === "date";
+  if (isDateInput && event.type === "change") return;
+  if (!isDateInput && event.type === "focusout") return;
+
   const renameFrom = event.target.dataset.renameGroup;
   if (renameFrom !== undefined) {
     renameTaskGroup(renameFrom, event.target.value);
@@ -545,7 +666,6 @@ taskTableBody.addEventListener("change", (event) => {
     moveTaskToGroup(task, event.target.value, previousGroup);
   } else if (field === "startDate") {
     task.startDate = event.target.value;
-    if (!task.planningMonth && isIsoDate(task.startDate)) task.planningMonth = task.startDate.slice(0, 7);
   } else {
     task[field] = event.target.value;
   }
@@ -560,8 +680,11 @@ taskTableBody.addEventListener("change", (event) => {
     task.dependsOn = "";
   }
 
-  saveAndRender();
-});
+  saveAndRender(FIELDS_WITHOUT_GANTT_IMPACT.has(field) ? RENDER_SCOPES_WITHOUT_GANTT : RENDER_SCOPES);
+}
+
+taskTableBody.addEventListener("change", handleTaskTableFieldCommit);
+taskTableBody.addEventListener("focusout", handleTaskTableFieldCommit);
 
 taskTableBody.addEventListener("click", (event) => {
   if (event.target.closest("[data-toggle-all-groups]")) {
@@ -662,39 +785,6 @@ ownerCapacityList.addEventListener("change", (event) => {
   if (!owner) return;
   state.capacity.owners[owner] = normalizeCapacityValue(event.target.value, state.capacity.defaultDaily);
   saveAndRender();
-});
-
-planningBoard.addEventListener("dragstart", (event) => {
-  const card = event.target.closest("[data-board-task-id]");
-  if (!card) return;
-  draggedBoardTaskId = card.dataset.boardTaskId;
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", draggedBoardTaskId);
-  card.classList.add("dragging");
-});
-
-planningBoard.addEventListener("dragover", (event) => {
-  const column = event.target.closest("[data-planning-bucket]");
-  if (!draggedBoardTaskId || !column) return;
-  event.preventDefault();
-  event.dataTransfer.dropEffect = "move";
-  planningBoard.querySelectorAll(".board-column.drop-target").forEach((item) => item.classList.remove("drop-target"));
-  column.classList.add("drop-target");
-});
-
-planningBoard.addEventListener("drop", (event) => {
-  const column = event.target.closest("[data-planning-bucket]");
-  if (!draggedBoardTaskId || !column) return;
-  event.preventDefault();
-  const moved = moveTaskToPlanningBucket(draggedBoardTaskId, column.dataset.planningBucket, column.dataset.planningMonth || "");
-  draggedBoardTaskId = "";
-  clearPlanningDropState();
-  if (moved) saveAndRender();
-});
-
-planningBoard.addEventListener("dragend", () => {
-  draggedBoardTaskId = "";
-  clearPlanningDropState();
 });
 
 render();

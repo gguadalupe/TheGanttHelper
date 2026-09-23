@@ -583,7 +583,6 @@ function addDevopsItemToPlan(item, row) {
     type,
     owner: item.assignedTo || "",
     startDate: isIsoDate(startDate) ? startDate : toIsoDate(new Date()),
-    planningMonth: (isIsoDate(startDate) ? startDate : toIsoDate(new Date())).slice(0, 7),
     duration: isMilestoneType(type) ? 1 : duration,
     effortLevel: item.effortLevel || "",
     dependsOn: "",

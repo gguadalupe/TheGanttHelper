@@ -108,11 +108,11 @@ function toggleTaskGroup(groupPath) {
     collapsedGroups.add(normalizedPath);
   }
   saveCollapsedGroups();
-  render();
+  scheduleRender();
 }
 
 function defaultTaskFilters() {
-  return { group: "", type: "", owner: "", status: "", dueBucket: "", search: "" };
+  return { group: "", type: "", owner: "", status: [], dueBucket: "", search: "" };
 }
 
 function loadTaskFilters() {
@@ -124,7 +124,11 @@ function loadTaskFilters() {
       group: typeof saved.group === "string" ? saved.group : defaults.group,
       type: typeof saved.type === "string" ? saved.type : defaults.type,
       owner: typeof saved.owner === "string" ? saved.owner : defaults.owner,
-      status: typeof saved.status === "string" ? saved.status : defaults.status,
+      status: Array.isArray(saved.status)
+        ? saved.status.filter((value) => typeof value === "string")
+        : typeof saved.status === "string" && saved.status
+          ? [saved.status]
+          : defaults.status,
       dueBucket: dueBucketValues.includes(saved.dueBucket) ? saved.dueBucket : defaults.dueBucket,
       search: typeof saved.search === "string" ? saved.search : defaults.search
     };
@@ -133,6 +137,17 @@ function loadTaskFilters() {
     return defaults;
   }
 }
+
+// Persists across renderTaskFilterRow() rebuilds (every table render tears the row
+// down and recreates it) so the status dropdown doesn't slam shut mid-interaction.
+let statusFilterMenuOpen = false;
+
+// When the trigger sits near the edge of the table's horizontal scroll, focusing it on
+// click can make the browser nudge that scroll to bring it fully into view - which
+// would otherwise immediately trip the "close on scroll" listener in main.js and shut
+// the menu right after opening it. Scroll events within this window of opening are
+// ignored so that self-inflicted nudge doesn't close it.
+let statusFilterMenuOpenedAt = 0;
 
 function saveTaskFilters() {
   localStorage.setItem(TASK_FILTERS_KEY, JSON.stringify(taskFilters));
@@ -154,10 +169,12 @@ function renderTaskFilterRow() {
     filterEmptyCell("finish"),
     filterEmptyCell("dependsOn"),
     filterSelectCell("dueBucket", dueBucketOptions, "All due dates", "due"),
-    filterSelectCell("status", getUsedTaskStatuses(), "All statuses"),
+    filterStatusMultiCell(),
     filterEmptyCell("notes"),
     filterEmptyCell("actions")
   );
+
+  renderStatusFilterMenu();
 }
 
 function filterEmptyCell(column) {
@@ -202,6 +219,99 @@ function filterSelectCell(field, options, allLabel, column = field) {
   select.value = taskFilters[field];
   cell.append(select);
   return cell;
+}
+
+function getStatusFilterSummary() {
+  const selected = taskFilters.status;
+  if (!selected.length) return "All statuses";
+  if (selected.length === 1) return getStatusLabel(selected[0]);
+  return `${selected.length} statuses`;
+}
+
+function filterStatusMultiCell() {
+  const cell = document.createElement("td");
+  cell.dataset.column = "status";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "filter-input status-filter-trigger";
+  trigger.dataset.statusFilterTrigger = "true";
+  trigger.setAttribute("aria-haspopup", "true");
+  trigger.setAttribute("aria-expanded", String(statusFilterMenuOpen));
+  const triggerLabel = document.createElement("span");
+  triggerLabel.textContent = getStatusFilterSummary();
+  trigger.append(triggerLabel);
+  cell.append(trigger);
+  return cell;
+}
+
+// The menu lives as a standalone node on <body>, outside the table entirely - not just
+// nested inside the filter cell - so it can't inherit ".task-table input" sizing rules,
+// isn't trapped inside the filter row's own (sticky, z-index: 2) stacking context, and
+// isn't subject to any nesting quirks between position: fixed and position: sticky
+// ancestors. It's created once and its content is refreshed on every render instead of
+// being torn down and rebuilt with the row.
+let statusFilterMenuEl = null;
+
+function ensureStatusFilterMenu() {
+  if (!statusFilterMenuEl) {
+    statusFilterMenuEl = document.createElement("div");
+    statusFilterMenuEl.className = "status-filter-menu";
+    statusFilterMenuEl.hidden = true;
+    document.body.append(statusFilterMenuEl);
+  }
+  return statusFilterMenuEl;
+}
+
+function renderStatusFilterMenu() {
+  const menu = ensureStatusFilterMenu();
+  menu.textContent = "";
+
+  const options = getUsedTaskStatuses();
+  if (!options.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-filter-empty";
+    empty.textContent = "No statuses yet";
+    menu.append(empty);
+  } else {
+    options.forEach(([value, label]) => {
+      const optionLabel = document.createElement("label");
+      optionLabel.className = "status-filter-option";
+      optionLabel.title = label;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.statusFilterValue = value;
+      checkbox.checked = taskFilters.status.includes(value);
+      const text = document.createElement("span");
+      text.textContent = label;
+      optionLabel.append(checkbox, text);
+      menu.append(optionLabel);
+    });
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "status-filter-actions";
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.dataset.statusFilterClear = "true";
+  clearBtn.textContent = "Clear";
+  actions.append(clearBtn);
+  menu.append(actions);
+
+  menu.hidden = !statusFilterMenuOpen;
+  if (statusFilterMenuOpen) positionStatusFilterMenu();
+}
+
+function positionStatusFilterMenu() {
+  const trigger = taskFilterRow.querySelector("[data-status-filter-trigger]");
+  const menu = statusFilterMenuEl;
+  if (!trigger || !menu) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.max(rect.width, 220);
+  const left = Math.min(rect.left, Math.max(8, window.innerWidth - width - 8));
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${left}px`;
+  menu.style.width = `${width}px`;
 }
 
 function renderTable(analysis) {
@@ -317,7 +427,9 @@ function renderTaskRow(task, warningsByTask) {
   row.dataset.group = normalizeGroupName(task.group);
   row.className = [
     warningsByTask.has(task.id) ? "has-warning" : "",
+    isInProgressStatus(task.status) ? "in-progress" : "",
     isDoneStatus(task.status) ? "done" : "",
+    isCompletedLate(task) ? "late" : "",
     isMilestoneType(task.type) ? "milestone-task" : ""
   ].filter(Boolean).join(" ");
 
@@ -498,7 +610,7 @@ function taskExternalLink(task) {
 
 function taskWarningButton(task, warnings) {
   const button = document.createElement("button");
-  button.className = "task-warning-indicator";
+  button.className = ["task-warning-indicator", isCompletedLate(task) ? "late" : ""].filter(Boolean).join(" ");
   button.type = "button";
   const messages = warnings.map((warning) => `${warning.type}: ${warning.message}`).join("\n");
   button.title = messages;
@@ -671,7 +783,6 @@ function moveDraggedTask(sourceId, targetRow, position) {
     const targetGroupRollup = getGroupRollup(remaining.filter((task) => isGroupPathOrDescendant(task.group, targetGroupName)));
     if (targetGroupRollup.range) {
       sourceTask.startDate = targetGroupRollup.range.start;
-      sourceTask.planningMonth = sourceTask.startDate.slice(0, 7);
     }
   }
 

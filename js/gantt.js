@@ -198,7 +198,8 @@ function renderGanttTaskRow(task, context) {
       milestone.className = [
         "milestone",
         isDoneStatus(task.status) ? "done" : "",
-        warningTasks.has(task.id) ? "warning" : ""
+        warningTasks.has(task.id) ? "warning" : "",
+        isCompletedLate(task) ? "late" : ""
       ].filter(Boolean).join(" ");
       milestone.style.gridColumn = `${startIndex + 1}`;
       milestone.dataset.taskId = task.id;
@@ -211,7 +212,8 @@ function renderGanttTaskRow(task, context) {
         "bar",
         isInProgressStatus(task.status) ? "in-progress" : "",
         isDoneStatus(task.status) ? "done" : "",
-        warningTasks.has(task.id) ? "warning" : ""
+        warningTasks.has(task.id) ? "warning" : "",
+        isCompletedLate(task) ? "late" : ""
       ].filter(Boolean).join(" ");
       bar.style.gridColumn = `${startIndex + 1} / span ${finishIndex - startIndex + 1}`;
       bar.dataset.taskId = task.id;

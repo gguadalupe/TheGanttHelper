@@ -6,11 +6,8 @@ const COLLAPSED_GROUPS_KEY = "simple-gantt-collapsed-groups-v1";
 const COLUMN_SETTINGS_KEY = "simple-gantt-column-settings-v1";
 const TASK_FILTERS_KEY = "simple-gantt-task-filters-v1";
 const DEVOPS_COLLAPSED_GROUPS_KEY = "simple-gantt-devops-collapsed-groups-v1";
-const VIEW_KEY = "simple-gantt-view-v1";
 const GANTT_ZOOM_KEY = "simple-gantt-zoom-v1";
 const GANTT_ZOOM_LEVELS = { day: 34, week: 12, month: 4 };
-const PLANNING_MONTH_COUNT_KEY = "simple-gantt-planning-month-count-v1";
-const DEFAULT_PLANNING_MONTH_COUNT = 4;
 // Nested group paths split on this exact substring (spaces required) so that
 // slashes with no surrounding spaces - "50/50", "2026/08" - never get treated
 // as nesting. Do not change this to a bare "/" split.
@@ -123,7 +120,6 @@ const sampleTasks = [
     type: "milestone",
     owner: "",
     startDate: toIsoDate(new Date()),
-    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 1,
     dependsOn: "",
     dueDate: "",
@@ -138,7 +134,6 @@ const sampleTasks = [
     type: "task",
     owner: "",
     startDate: addBusinessDays(toIsoDate(new Date()), 1),
-    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 3,
     dependsOn: "",
     dueDate: "",
@@ -153,7 +148,6 @@ const sampleTasks = [
     type: "task",
     owner: "",
     startDate: addBusinessDays(toIsoDate(new Date()), 4),
-    planningMonth: toIsoDate(new Date()).slice(0, 7),
     duration: 5,
     dependsOn: "",
     dueDate: "",

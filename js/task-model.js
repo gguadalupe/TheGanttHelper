@@ -31,7 +31,6 @@ function normalizeState(raw) {
       type: normalizeTaskType(task.type),
       owner: typeof task.owner === "string" ? task.owner : "",
       startDate: isIsoDate(task.startDate) ? task.startDate : toIsoDate(new Date()),
-      planningMonth: normalizePlanningMonth(task.planningMonth, task.startDate),
       duration: Math.max(1, Number.parseInt(task.duration || task.durationDays, 10) || 1),
       effortLevel: typeof task.effortLevel === "string" ? task.effortLevel : "",
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
@@ -198,17 +197,33 @@ function getStatusLabel(value) {
   return statusOptions.find(([optionValue]) => optionValue === normalizedStatus)?.[1] || normalizedStatus;
 }
 
+// Statuses not covered by STATUS_PROGRESS_FACTORS (e.g. hand-typed values) fall back to
+// these generic word lists instead.
+function getExplicitProgressFactor(value) {
+  const key = normalizeTaskStatus(value).toLowerCase();
+  return Object.prototype.hasOwnProperty.call(STATUS_PROGRESS_FACTORS, key) ? STATUS_PROGRESS_FACTORS[key] : null;
+}
+
 function isDoneStatus(value) {
+  const explicit = getExplicitProgressFactor(value);
+  if (explicit !== null) return explicit >= 1;
   return ["closed", "done", "resolved", "removed"].includes(normalizeTaskStatus(value).toLowerCase());
 }
 
 function isInProgressStatus(value) {
+  const explicit = getExplicitProgressFactor(value);
+  if (explicit !== null) return explicit > 0 && explicit < 1;
   return ["active", "committed", "in progress", "doing", "in-progress"].includes(normalizeTaskStatus(value).toLowerCase());
 }
 
+function isCompletedLate(task) {
+  if (!isDoneStatus(task.status) || !isIsoDate(task.dueDate)) return false;
+  return compareDates(getFinishDate(task), task.dueDate) > 0;
+}
+
 function getStatusProgressFactor(value) {
-  const key = normalizeTaskStatus(value).toLowerCase();
-  if (Object.prototype.hasOwnProperty.call(STATUS_PROGRESS_FACTORS, key)) return STATUS_PROGRESS_FACTORS[key];
+  const explicit = getExplicitProgressFactor(value);
+  if (explicit !== null) return explicit;
   if (isDoneStatus(value)) return 1;
   if (isInProgressStatus(value)) return 0.5;
   return 0;
@@ -289,7 +304,6 @@ function shiftGroupDates(groupPath, dayDelta) {
     if (!isGroupPathOrDescendant(task.group, groupPath)) return;
     if (!isIsoDate(task.startDate)) return;
     task.startDate = addCalendarDays(task.startDate, dayDelta);
-    task.planningMonth = task.startDate.slice(0, 7);
   });
 }
 
@@ -298,7 +312,6 @@ function shiftTaskDate(taskId, dayDelta) {
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task || !isIsoDate(task.startDate)) return;
   task.startDate = addCalendarDays(task.startDate, dayDelta);
-  task.planningMonth = task.startDate.slice(0, 7);
 }
 
 function renameTaskGroup(previousPathRaw, nextPathRaw) {
@@ -438,7 +451,7 @@ function taskMatchesFilters(task, filters, todayIso = toIsoDate(new Date())) {
   if (filters.group && !isGroupPathOrDescendant(task.group, filters.group)) return false;
   if (filters.type && normalizeTaskType(task.type) !== filters.type) return false;
   if (filters.owner && normalizeOwnerName(task.owner) !== filters.owner) return false;
-  if (filters.status && normalizeTaskStatus(task.status) !== filters.status) return false;
+  if (filters.status.length && !filters.status.includes(normalizeTaskStatus(task.status))) return false;
   if (filters.dueBucket && getDueDateBucket(task, todayIso) !== filters.dueBucket) return false;
   if (filters.search) {
     const needle = filters.search.trim().toLowerCase();
@@ -459,7 +472,7 @@ function getDueDateBucket(task, todayIso = toIsoDate(new Date())) {
 }
 
 function isAnyTaskFilterActive(filters) {
-  return Boolean(filters.group || filters.type || filters.owner || filters.status || filters.dueBucket || filters.search.trim());
+  return Boolean(filters.group || filters.type || filters.owner || filters.status.length || filters.dueBucket || filters.search.trim());
 }
 
 function getTaskIdMap() {
