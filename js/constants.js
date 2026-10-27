@@ -24,6 +24,11 @@ const DEFAULT_WIQL = [
   "ORDER BY [System.ChangedDate] DESC"
 ].join("\n");
 
+// The PR reviewer group that must review last, after every other required and optional
+// reviewer has approved - see js/pr-review.js. Configurable per-project in Sync options
+// since the group name is organization-specific, not something to hardcode confidently.
+const DEFAULT_SENIOR_REVIEWER_GROUP = "Senior Developers";
+
 const statusOptions = [
   ["not-started", "Not started"],
   ["in-progress", "In progress"],
@@ -106,6 +111,7 @@ const taskColumns = [
   { key: "finish", label: "Finish", width: 118, min: 100 },
   { key: "dependsOn", label: "Depends on", width: 156, min: 110 },
   { key: "due", label: "Due", width: 140, min: 110 },
+  { key: "closed", label: "Closed", width: 118, min: 100 },
   { key: "status", label: "Status", width: 120, min: 100 },
   { key: "notes", label: "Notes", width: 148, min: 100 },
   { key: "actions", label: "Actions", width: 58, min: 48 }

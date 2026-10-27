@@ -21,6 +21,8 @@
         </div>
         <button id="openColumnsBtn" type="button">Columns</button>
         <button id="openDevopsOptionsBtn" type="button">Sync options</button>
+        <button id="openReviewTagsBtn" type="button">Review tags</button>
+        <button id="openPrStatusBtn" type="button">Share PR status</button>
         <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
         <button id="exportJsonBtn" type="button">Export JSON</button>
         <button id="exportCsvBtn" type="button">Export CSV</button>
@@ -61,6 +63,7 @@
                   <th data-column="finish">Finish</th>
                   <th data-column="dependsOn">Depends on</th>
                   <th data-column="due">Due</th>
+                  <th data-column="closed">Closed</th>
                   <th data-column="status">Status</th>
                   <th data-column="notes">Notes</th>
                   <th data-column="actions"></th>
@@ -83,20 +86,6 @@
           <p id="warningCount"></p>
         </div>
         <ul id="warningsList" class="warnings-list"></ul>
-        <div class="capacity-panel">
-          <div class="capacity-heading">
-            <div>
-              <h3>Capacity</h3>
-              <p>Demand is counted as scheduled task-days per owner.</p>
-            </div>
-            <label>
-              Default/day
-              <input id="defaultCapacityInput" type="number" min="0" step="0.25">
-            </label>
-          </div>
-          <div id="ownerCapacityList" class="owner-capacity-list"></div>
-          <div id="capacityHeatmap" class="capacity-heatmap"></div>
-        </div>
       </aside>
     </main>
 
@@ -143,6 +132,10 @@
             Personal access token
             <input id="devopsToken" type="password" placeholder="Paste for this sync only" autocomplete="off">
           </label>
+          <label>
+            Senior reviewer group
+            <input id="devopsSeniorReviewerGroup" type="text" placeholder="Senior Developers" autocomplete="off">
+          </label>
         </div>
 
         <label class="wiql-field">
@@ -184,6 +177,41 @@
       </form>
     </dialog>
 
+    <dialog id="reviewTagsDialog" class="review-tags-dialog">
+      <form method="dialog" class="review-tags-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>PR Review Tags</h2>
+            <p>Checks each synced work item's linked pull request reviewers against its tags. Tagging stays manual - this only tells you what to add or remove.</p>
+          </div>
+          <button id="closeReviewTagsBtn" type="button" aria-label="Close PR review tags">X</button>
+        </div>
+        <div class="review-tags-toolbar">
+          <button id="refreshReviewTagsBtn" type="button" class="primary">Refresh</button>
+          <span id="reviewTagsStatus"></span>
+        </div>
+        <div id="reviewTagsContent" class="review-tags-content"></div>
+      </form>
+    </dialog>
+
+    <dialog id="prStatusDialog" class="review-tags-dialog">
+      <form method="dialog" class="review-tags-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>PR Status for Teams</h2>
+            <p>A copy-paste-ready summary of active pull requests and who's still pending review.</p>
+          </div>
+          <button id="closePrStatusBtn" type="button" aria-label="Close PR status">X</button>
+        </div>
+        <div class="review-tags-toolbar">
+          <button id="refreshPrStatusBtn" type="button" class="primary">Refresh</button>
+          <button id="copyPrStatusBtn" type="button">Copy to clipboard</button>
+          <span id="prStatusStatus"></span>
+        </div>
+        <div id="prStatusContent" class="pr-status-content"></div>
+      </form>
+    </dialog>
+
     <template id="emptyStateTemplate">
       <div class="empty-state">
         <h2>No tasks yet</h2>
@@ -195,8 +223,8 @@
     <script src="js/dates.js"></script>
     <script src="js/constants.js"></script>
     <script src="js/task-model.js"></script>
-    <script src="js/capacity.js"></script>
     <script src="js/devops.js"></script>
+    <script src="js/pr-review.js"></script>
     <script src="js/table.js"></script>
     <script src="js/gantt.js"></script>
     <script src="js/export.js"></script>

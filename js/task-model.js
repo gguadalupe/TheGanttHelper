@@ -9,8 +9,7 @@ function loadState() {
   return {
     projectName: "My Project Plan",
     tasks: sampleTasks,
-    devops: defaultDevopsState(),
-    capacity: defaultCapacityState()
+    devops: defaultDevopsState()
   };
 }
 
@@ -36,6 +35,7 @@ function normalizeState(raw) {
       dependsOn: typeof task.dependsOn === "string" ? task.dependsOn.trim() : "",
       parentId: task.parentId == null ? "" : String(task.parentId),
       dueDate: isIsoDate(task.dueDate) ? task.dueDate : "",
+      closedDate: isIsoDate(task.closedDate) ? task.closedDate : "",
       status: normalizeTaskStatus(task.status),
       notes: typeof task.notes === "string" ? task.notes : "",
       source: typeof task.source === "string" ? task.source : "",
@@ -68,8 +68,7 @@ function normalizeState(raw) {
   return {
     projectName: typeof raw.projectName === "string" && raw.projectName.trim() ? raw.projectName.trim() : "Untitled Project",
     tasks,
-    devops: normalizeDevopsState(raw.devops),
-    capacity: normalizeCapacityState(raw.capacity)
+    devops: normalizeDevopsState(raw.devops)
   };
 }
 
@@ -139,6 +138,17 @@ function getUsedTaskTypes() {
 
 function isMilestoneType(value) {
   return normalizeTaskType(value).toLowerCase() === "milestone";
+}
+
+function normalizeOwnerName(value) {
+  const owner = typeof value === "string" ? value.trim() : "";
+  return owner || "Unassigned";
+}
+
+function getTaskOwners() {
+  const owners = new Set();
+  state.tasks.forEach((task) => owners.add(normalizeOwnerName(task.owner)));
+  return Array.from(owners).sort((a, b) => a.localeCompare(b));
 }
 
 function normalizeTaskStatus(value) {
@@ -600,16 +610,7 @@ function analyzeTasks() {
     ? state.tasks.map(getFinishDate).sort(compareDates).at(-1)
     : "";
 
-  const capacity = analyzeCapacity(range);
-  capacity.overloads.forEach((overload) => {
-    warnings.push({
-      taskId: "",
-      type: "Capacity",
-      message: `${overload.owner} is over capacity on ${formatShortDate(overload.day)}: ${formatCapacityValue(overload.load)} demand / ${formatCapacityValue(overload.capacity)} capacity.`
-    });
-  });
-
-  return { warnings, range, projectFinish, capacity };
+  return { warnings, range, projectFinish };
 }
 
 

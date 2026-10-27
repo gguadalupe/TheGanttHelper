@@ -1,6 +1,6 @@
 function toCsv() {
   const rows = [
-    ["ID", "Task", "Group", "Type", "Owner", "Start", "Duration", "Effort Level", "Finish", "Depends On", "Due", "Status", "Notes", "Source", "External ID", "External URL"]
+    ["ID", "Task", "Group", "Type", "Owner", "Start", "Duration", "Effort Level", "Finish", "Depends On", "Due", "Closed", "Status", "Notes", "Source", "External ID", "External URL"]
   ];
   state.tasks.forEach((task) => {
     rows.push([
@@ -15,6 +15,7 @@ function toCsv() {
       getFinishDate(task),
       task.dependsOn,
       task.dueDate,
+      task.closedDate || "",
       getStatusLabel(task.status),
       task.notes,
       task.source,

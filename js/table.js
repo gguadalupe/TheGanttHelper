@@ -162,13 +162,14 @@ function renderTaskFilterRow() {
     filterSearchCell(),
     filterSelectCell("group", getAllGroupPaths().map((path) => [path, path]), "All groups"),
     filterSelectCell("type", getUsedTaskTypes(), "All types"),
-    filterSelectCell("owner", getCapacityOwners().map((owner) => [owner, owner]), "All owners"),
+    filterSelectCell("owner", getTaskOwners().map((owner) => [owner, owner]), "All owners"),
     filterEmptyCell("start"),
     filterEmptyCell("duration"),
     filterEmptyCell("effortLevel"),
     filterEmptyCell("finish"),
     filterEmptyCell("dependsOn"),
     filterSelectCell("dueBucket", dueBucketOptions, "All due dates", "due"),
+    filterEmptyCell("closed"),
     filterStatusMultiCell(),
     filterEmptyCell("notes"),
     filterEmptyCell("actions")
@@ -362,6 +363,7 @@ function renderTable(analysis) {
     groupRollupCell(projectRollup.range ? formatShortDate(projectRollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
     groupEmptyCell("due"),
+    groupEmptyCell("closed"),
     groupRollupCell(
       projectRollup.totalCount ? `${projectRollup.progressPercent}%` : "",
       "status",
@@ -407,6 +409,7 @@ function renderGroupRow(node, depth, parentPath, warningsByTask) {
     groupRollupCell(rollup.range ? formatShortDate(rollup.range.end) : "", "finish"),
     groupEmptyCell("dependsOn"),
     groupEmptyCell("due"),
+    groupEmptyCell("closed"),
     groupRollupCell(
       rollup.totalCount ? `${rollup.progressPercent}%` : "",
       "status",
@@ -445,6 +448,7 @@ function renderTaskRow(task, warningsByTask) {
     readOnlyCell(getFinishDate(task), "finish"),
     inputCell(task, "dependsOn", "text", "dependsOn"),
     inputCell(task, "dueDate", "date", "due"),
+    readOnlyCell(task.closedDate || "", "closed"),
     statusCell(task),
     inputCell(task, "notes", "text", "notes"),
     deleteCell(task)
@@ -777,18 +781,17 @@ function moveDraggedTask(sourceId, targetRow, position) {
   }
 
   const previousGroupName = normalizeGroupName(sourceTask.group);
-  if (previousGroupName !== targetGroupName) {
+  const groupChanged = previousGroupName !== targetGroupName;
+  if (groupChanged) {
     sourceTask.group = targetGroupName === "Ungrouped" ? "" : targetGroupName;
-
-    const targetGroupRollup = getGroupRollup(remaining.filter((task) => isGroupPathOrDescendant(task.group, targetGroupName)));
-    if (targetGroupRollup.range) {
-      sourceTask.startDate = targetGroupRollup.range.start;
-    }
   }
 
   remaining.splice(insertAt, 0, sourceTask);
 
-  if (state.tasks.every((task, index) => task.id === remaining[index]?.id)) return false;
+  // A group change can land the task back at the same array index it already had (e.g.
+  // dragging it into the group immediately following it) - order-only comparison would
+  // miss that as a no-op and silently drop the group change instead of saving it.
+  if (!groupChanged && state.tasks.every((task, index) => task.id === remaining[index]?.id)) return false;
 
   state.tasks = remaining;
   return true;

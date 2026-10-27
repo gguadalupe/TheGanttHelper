@@ -19,6 +19,7 @@ function renderDevopsPanel() {
   devopsProjectStartInput.value = devops.config.projectStartDate || toIsoDate(new Date());
   devopsTokenInput.value = localStorage.getItem(DEVOPS_TOKEN_KEY) || "";
   devopsWiqlInput.value = devops.config.wiql || DEFAULT_WIQL;
+  devopsSeniorReviewerGroupInput.value = devops.config.seniorReviewerGroup || DEFAULT_SENIOR_REVIEWER_GROUP;
   renderDevopsFilters();
   devopsInboxList.textContent = "";
 
@@ -90,6 +91,7 @@ function renderDevopsInboxItem(item) {
     item.parentId ? `Parent #${item.parentId}${item.parentTitle ? ` ${item.parentTitle}` : ""}` : "",
     item.effortLevel ? `Effort ${item.effortLevel}` : "",
     item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
+    item.closedDate ? `Closed ${formatShortDate(item.closedDate)}` : "",
     item.state,
     item.assignedTo || "Unassigned",
     item.changedDate ? `Changed ${formatDateTime(item.changedDate)}` : ""
@@ -389,7 +391,8 @@ function getDevopsFormConfig() {
     org: devopsOrgInput.value.trim(),
     project: devopsProjectInput.value.trim(),
     projectStartDate: isIsoDate(devopsProjectStartInput.value) ? devopsProjectStartInput.value : toIsoDate(new Date()),
-    wiql: devopsWiqlInput.value.trim() || DEFAULT_WIQL
+    wiql: devopsWiqlInput.value.trim() || DEFAULT_WIQL,
+    seniorReviewerGroup: devopsSeniorReviewerGroupInput.value.trim() || DEFAULT_SENIOR_REVIEWER_GROUP
   };
 }
 
@@ -494,6 +497,7 @@ function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
     parentId,
     parentTitle,
     dueDate: getDevopsDueDate(fields),
+    closedDate: getDevopsClosedDate(fields),
     url: `${getDevopsProjectUrl(config)}/_workitems/edit/${externalId}`,
     suggestedGroup: buildDevopsSuggestedGroup(fields, config, parentId, parentTitle),
     suggestedType: getDevopsTaskType(fields["System.WorkItemType"], title)
@@ -566,6 +570,7 @@ function isDevopsTaskOutOfSync(task, item) {
   if (task.owner !== (item.assignedTo || "")) return true;
   if (task.effortLevel !== (item.effortLevel || "")) return true;
   if (task.dueDate !== (item.dueDate || "")) return true;
+  if (task.closedDate !== (item.closedDate || "")) return true;
   if (task.type !== getDevopsTaskType(item.workItemType, item.title)) return true;
   return false;
 }
@@ -588,6 +593,7 @@ function addDevopsItemToPlan(item, row) {
     dependsOn: "",
     parentId: item.parentId || "",
     dueDate: item.dueDate || "",
+    closedDate: item.closedDate || "",
     status: getDevopsStatus(item.state),
     notes: `Azure DevOps #${item.externalId}`,
     source: "azure-devops",
@@ -621,6 +627,7 @@ function applyDevopsUpdate(item) {
   task.owner = item.assignedTo || "";
   task.effortLevel = item.effortLevel || "";
   task.dueDate = item.dueDate || "";
+  task.closedDate = item.closedDate || "";
   task.type = getDevopsTaskType(item.workItemType, item.title);
   if (isMilestoneType(task.type)) task.duration = 1;
   task.externalUrl = item.url;
@@ -658,7 +665,10 @@ function normalizeDevopsState(devops) {
       org: typeof devops.config?.org === "string" && devops.config.org.trim() ? devops.config.org : DEFAULT_DEVOPS_ORG,
       project: typeof devops.config?.project === "string" && devops.config.project.trim() ? devops.config.project : DEFAULT_DEVOPS_PROJECT,
       projectStartDate: isIsoDate(devops.config?.projectStartDate) ? devops.config.projectStartDate : toIsoDate(new Date()),
-      wiql: typeof devops.config?.wiql === "string" && devops.config.wiql.trim() ? devops.config.wiql : DEFAULT_WIQL
+      wiql: typeof devops.config?.wiql === "string" && devops.config.wiql.trim() ? devops.config.wiql : DEFAULT_WIQL,
+      seniorReviewerGroup: typeof devops.config?.seniorReviewerGroup === "string" && devops.config.seniorReviewerGroup.trim()
+        ? devops.config.seniorReviewerGroup.trim()
+        : DEFAULT_SENIOR_REVIEWER_GROUP
     },
     inbox: Array.isArray(devops.inbox) ? devops.inbox.map(normalizeDevopsInboxItem).filter(Boolean) : [],
     ignoredIds: Array.isArray(devops.ignoredIds) ? devops.ignoredIds.map(String) : [],
@@ -682,6 +692,7 @@ function normalizeDevopsInboxItem(item) {
     parentId: item.parentId == null ? "" : String(item.parentId),
     parentTitle: typeof item.parentTitle === "string" ? item.parentTitle : "",
     dueDate: isIsoDate(item.dueDate) ? item.dueDate : "",
+    closedDate: isIsoDate(item.closedDate) ? item.closedDate : "",
     url: typeof item.url === "string" ? item.url : "",
     signature: typeof item.signature === "string" ? item.signature : "",
     status: ["new", "changed", "imported", "ignored"].includes(item.status) ? item.status : "new",
@@ -699,7 +710,8 @@ function defaultDevopsState() {
       org: DEFAULT_DEVOPS_ORG,
       project: DEFAULT_DEVOPS_PROJECT,
       projectStartDate: toIsoDate(new Date()),
-      wiql: DEFAULT_WIQL
+      wiql: DEFAULT_WIQL,
+      seniorReviewerGroup: DEFAULT_SENIOR_REVIEWER_GROUP
     },
     inbox: [],
     ignoredIds: [],
@@ -774,6 +786,19 @@ function getDevopsDueDate(fields) {
   return toIsoDate(date);
 }
 
+// Microsoft.VSTS.Common.ClosedDate is set by Azure DevOps itself the moment a work
+// item's state enters a "Closed"-style category - it's the actual date work finished,
+// not the plan's own computed Start+Duration finish date.
+function getDevopsClosedDate(fields) {
+  const value = fields["Microsoft.VSTS.Common.ClosedDate"];
+  if (!value) return "";
+  if (isIsoDate(value)) return value;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return toIsoDate(date);
+}
+
 // Confirmed against this org's raw work item JSON: Custom.EffortEstimate is a
 // qualitative picklist ("Low"/"Medium"/"High"), not a number.
 function getDevopsEffortLevel(fields) {
@@ -795,6 +820,7 @@ function getDevopsSignature(item) {
     parentId: item.parentId,
     parentTitle: item.parentTitle,
     dueDate: item.dueDate,
+    closedDate: item.closedDate,
     effortLevel: item.effortLevel
   });
 }

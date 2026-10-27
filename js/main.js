@@ -19,9 +19,6 @@ const taskTableBody = document.querySelector("#taskTableBody");
 const gantt = document.querySelector("#gantt");
 const warningsList = document.querySelector("#warningsList");
 const warningCount = document.querySelector("#warningCount");
-const defaultCapacityInput = document.querySelector("#defaultCapacityInput");
-const ownerCapacityList = document.querySelector("#ownerCapacityList");
-const capacityHeatmap = document.querySelector("#capacityHeatmap");
 const emptyStateTemplate = document.querySelector("#emptyStateTemplate");
 const columnsDialog = document.querySelector("#columnsDialog");
 const closeColumnsBtn = document.querySelector("#closeColumnsBtn");
@@ -34,6 +31,7 @@ const devopsProjectInput = document.querySelector("#devopsProject");
 const devopsProjectStartInput = document.querySelector("#devopsProjectStart");
 const devopsTokenInput = document.querySelector("#devopsToken");
 const devopsWiqlInput = document.querySelector("#devopsWiql");
+const devopsSeniorReviewerGroupInput = document.querySelector("#devopsSeniorReviewerGroup");
 const syncDevopsBtn = document.querySelector("#syncDevopsBtn");
 const syncSelectedDevopsBtn = document.querySelector("#syncSelectedDevopsBtn");
 const syncAllDevopsBtn = document.querySelector("#syncAllDevopsBtn");
@@ -43,6 +41,20 @@ const devopsInboxSummary = document.querySelector("#devopsInboxSummary");
 const devopsInboxList = document.querySelector("#devopsInboxList");
 const devopsTypeFilter = document.querySelector("#devopsTypeFilter");
 const devopsStatusFilter = document.querySelector("#devopsStatusFilter");
+const openReviewTagsBtn = document.querySelector("#openReviewTagsBtn");
+const reviewTagsDialog = document.querySelector("#reviewTagsDialog");
+const closeReviewTagsBtn = document.querySelector("#closeReviewTagsBtn");
+const refreshReviewTagsBtn = document.querySelector("#refreshReviewTagsBtn");
+const reviewTagsStatus = document.querySelector("#reviewTagsStatus");
+const reviewTagsContent = document.querySelector("#reviewTagsContent");
+const openPrStatusBtn = document.querySelector("#openPrStatusBtn");
+const prStatusDialog = document.querySelector("#prStatusDialog");
+const closePrStatusBtn = document.querySelector("#closePrStatusBtn");
+const refreshPrStatusBtn = document.querySelector("#refreshPrStatusBtn");
+const copyPrStatusBtn = document.querySelector("#copyPrStatusBtn");
+const prStatusStatus = document.querySelector("#prStatusStatus");
+const prStatusContent = document.querySelector("#prStatusContent");
+let lastPrSummaries = [];
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
 let currentZoom = loadGanttZoom();
 let draggedTaskId = "";
@@ -58,12 +70,12 @@ let taskFilters = loadTaskFilters();
 // The expensive render scopes - gantt especially, which can build tens of thousands of
 // day-cell elements for a large synced backlog. Everything else (view toggles, summary
 // text, checks) is cheap enough to just always refresh.
-const RENDER_SCOPES = ["table", "gantt", "warnings", "capacity"];
+const RENDER_SCOPES = ["table", "gantt", "warnings"];
 const RENDER_SCOPES_WITHOUT_GANTT = RENDER_SCOPES.filter((scope) => scope !== "gantt");
 
 // Fields whose value never shows up anywhere in the Gantt (bar position/span/color/
 // label, the axis range, or a bar's warning highlight) and can't move a task between
-// groups either - editing them only needs table/warnings/capacity to refresh, so it's
+// groups either - editing them only needs table/warnings to refresh, so it's
 // safe to skip rebuilding the Gantt's (potentially huge) day-cell grid.
 const FIELDS_WITHOUT_GANTT_IMPACT = new Set(["owner", "effortLevel", "notes"]);
 
@@ -103,7 +115,6 @@ function render(scopes = RENDER_SCOPES) {
   if (scopeSet.has("table")) renderTable(analysis);
   if (scopeSet.has("gantt")) renderGantt(analysis);
   if (scopeSet.has("warnings")) renderWarnings(analysis);
-  if (scopeSet.has("capacity")) renderCapacity(analysis);
   syncPlannerHeights();
 }
 
@@ -493,6 +504,107 @@ closeDevopsBtn.addEventListener("click", () => {
   devopsDialog.close();
 });
 
+openReviewTagsBtn.addEventListener("click", () => {
+  reviewTagsDialog.showModal();
+  loadReviewTagsSummary();
+});
+
+closeReviewTagsBtn.addEventListener("click", () => {
+  reviewTagsDialog.close();
+});
+
+refreshReviewTagsBtn.addEventListener("click", () => {
+  loadReviewTagsSummary();
+});
+
+async function loadReviewTagsSummary() {
+  refreshReviewTagsBtn.disabled = true;
+  setReviewTagsStatus("Loading...");
+  reviewTagsContent.textContent = "";
+  try {
+    const summary = await fetchReviewTagSummary((message) => setReviewTagsStatus(message));
+    renderReviewTagsSummary(summary);
+    setReviewTagsStatus(`Updated ${formatDateTime(new Date())}`);
+  } catch (error) {
+    setReviewTagsStatus(error.message || "Failed to load PR review tags.", true);
+  } finally {
+    refreshReviewTagsBtn.disabled = false;
+  }
+}
+
+function setReviewTagsStatus(message, isError = false) {
+  reviewTagsStatus.textContent = message;
+  reviewTagsStatus.classList.toggle("error", isError);
+}
+
+openPrStatusBtn.addEventListener("click", () => {
+  prStatusDialog.showModal();
+  loadPrStatusSummary();
+});
+
+closePrStatusBtn.addEventListener("click", () => {
+  prStatusDialog.close();
+});
+
+refreshPrStatusBtn.addEventListener("click", () => {
+  loadPrStatusSummary();
+});
+
+copyPrStatusBtn.addEventListener("click", async () => {
+  if (!lastPrSummaries.length) return;
+  const html = prStatusContent.innerHTML;
+  const text = buildTeamsMessageText(lastPrSummaries);
+  try {
+    if (typeof ClipboardItem === "undefined") throw new Error("ClipboardItem unsupported");
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" })
+      })
+    ]);
+    setPrStatusStatus("Copied - paste into Teams and the links stay clickable.");
+  } catch {
+    // Clipboard API (rich write, or even plain writeText) can fail - permissions,
+    // insecure context, no ClipboardItem support. Select the rendered content instead,
+    // so a manual Ctrl/Cmd+C still copies real HTML (with working links) from the DOM.
+    selectPrStatusContent();
+    setPrStatusStatus("Couldn't copy automatically - content is selected, press Ctrl/Cmd+C.", true);
+  }
+});
+
+function selectPrStatusContent() {
+  const range = document.createRange();
+  range.selectNodeContents(prStatusContent);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+async function loadPrStatusSummary() {
+  refreshPrStatusBtn.disabled = true;
+  copyPrStatusBtn.disabled = true;
+  setPrStatusStatus("Loading...");
+  prStatusContent.textContent = "";
+  lastPrSummaries = [];
+  try {
+    const summary = await fetchReviewTagSummary((message) => setPrStatusStatus(message));
+    lastPrSummaries = summary.prSummaries;
+    prStatusContent.append(renderPrStatusHtml(summary.prSummaries));
+    const errorNote = summary.prSummaryErrors ? ` (${summary.prSummaryErrors} pull request${summary.prSummaryErrors === 1 ? "" : "s"} failed to load)` : "";
+    setPrStatusStatus(`Updated ${formatDateTime(new Date())}${errorNote}`, Boolean(summary.prSummaryErrors));
+    copyPrStatusBtn.disabled = !summary.prSummaries.length;
+  } catch (error) {
+    setPrStatusStatus(error.message || "Failed to load PR status.", true);
+  } finally {
+    refreshPrStatusBtn.disabled = false;
+  }
+}
+
+function setPrStatusStatus(message, isError = false) {
+  prStatusStatus.textContent = message;
+  prStatusStatus.classList.toggle("error", isError);
+}
+
 devopsTokenInput.addEventListener("change", () => {
   const token = devopsTokenInput.value.trim();
   if (token) localStorage.setItem(DEVOPS_TOKEN_KEY, token);
@@ -589,7 +701,7 @@ document.querySelector("#exportCsvBtn").addEventListener("click", () => {
 
 document.querySelector("#clearBtn").addEventListener("click", () => {
   if (!confirm("Clear this project and start over?")) return;
-  state = { projectName: "Untitled Project", tasks: [], devops: defaultDevopsState(), capacity: defaultCapacityState() };
+  state = { projectName: "Untitled Project", tasks: [], devops: defaultDevopsState() };
   saveAndRender();
 });
 
@@ -773,18 +885,6 @@ taskTableBody.addEventListener("dragend", () => {
   draggedGroupParentPath = "";
   clearDropIndicators();
   taskTableBody.querySelectorAll(".dragging").forEach((row) => row.classList.remove("dragging"));
-});
-
-defaultCapacityInput.addEventListener("change", () => {
-  state.capacity.defaultDaily = normalizeCapacityValue(defaultCapacityInput.value, 1);
-  saveAndRender();
-});
-
-ownerCapacityList.addEventListener("change", (event) => {
-  const owner = event.target.dataset.capacityOwner;
-  if (!owner) return;
-  state.capacity.owners[owner] = normalizeCapacityValue(event.target.value, state.capacity.defaultDaily);
-  saveAndRender();
 });
 
 render();
