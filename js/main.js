@@ -55,6 +55,14 @@ const copyPrStatusBtn = document.querySelector("#copyPrStatusBtn");
 const prStatusStatus = document.querySelector("#prStatusStatus");
 const prStatusContent = document.querySelector("#prStatusContent");
 let lastPrSummaries = [];
+const openTicketStatusBtn = document.querySelector("#openTicketStatusBtn");
+const ticketStatusDialog = document.querySelector("#ticketStatusDialog");
+const closeTicketStatusBtn = document.querySelector("#closeTicketStatusBtn");
+const refreshTicketStatusBtn = document.querySelector("#refreshTicketStatusBtn");
+const copyTicketStatusBtn = document.querySelector("#copyTicketStatusBtn");
+const ticketStatusStatus = document.querySelector("#ticketStatusStatus");
+const ticketStatusContent = document.querySelector("#ticketStatusContent");
+let lastTicketStatusGroups = [];
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
 let currentZoom = loadGanttZoom();
 let draggedTaskId = "";
@@ -603,6 +611,61 @@ async function loadPrStatusSummary() {
 function setPrStatusStatus(message, isError = false) {
   prStatusStatus.textContent = message;
   prStatusStatus.classList.toggle("error", isError);
+}
+
+openTicketStatusBtn.addEventListener("click", () => {
+  ticketStatusDialog.showModal();
+  loadTicketStatusSummary();
+});
+
+closeTicketStatusBtn.addEventListener("click", () => {
+  ticketStatusDialog.close();
+});
+
+refreshTicketStatusBtn.addEventListener("click", () => {
+  loadTicketStatusSummary();
+});
+
+copyTicketStatusBtn.addEventListener("click", async () => {
+  if (!lastTicketStatusGroups.length) return;
+  const html = ticketStatusContent.innerHTML;
+  const text = buildTicketStatusText(lastTicketStatusGroups);
+  try {
+    if (typeof ClipboardItem === "undefined") throw new Error("ClipboardItem unsupported");
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" })
+      })
+    ]);
+    setTicketStatusStatus("Copied - paste into Teams and the links stay clickable.");
+  } catch {
+    selectTicketStatusContent();
+    setTicketStatusStatus("Couldn't copy automatically - content is selected, press Ctrl/Cmd+C.", true);
+  }
+});
+
+function selectTicketStatusContent() {
+  const range = document.createRange();
+  range.selectNodeContents(ticketStatusContent);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function loadTicketStatusSummary() {
+  setTicketStatusStatus("Loading...");
+  ticketStatusContent.textContent = "";
+  lastTicketStatusGroups = buildTicketStatusSummary();
+  ticketStatusContent.append(renderTicketStatusHtml(lastTicketStatusGroups));
+  const ticketCount = lastTicketStatusGroups.reduce((total, group) => total + group.ticketCount, 0);
+  setTicketStatusStatus(`${ticketCount} ticket${ticketCount === 1 ? "" : "s"} | Updated ${formatDateTime(new Date())}`);
+  copyTicketStatusBtn.disabled = !lastTicketStatusGroups.length;
+}
+
+function setTicketStatusStatus(message, isError = false) {
+  ticketStatusStatus.textContent = message;
+  ticketStatusStatus.classList.toggle("error", isError);
 }
 
 devopsTokenInput.addEventListener("change", () => {

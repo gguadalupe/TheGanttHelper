@@ -23,6 +23,7 @@
         <button id="openDevopsOptionsBtn" type="button">Sync options</button>
         <button id="openReviewTagsBtn" type="button">Review tags</button>
         <button id="openPrStatusBtn" type="button">Share PR status</button>
+        <button id="openTicketStatusBtn" type="button">Share ticket status</button>
         <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
         <button id="exportJsonBtn" type="button">Export JSON</button>
         <button id="exportCsvBtn" type="button">Export CSV</button>
@@ -212,6 +213,24 @@
       </form>
     </dialog>
 
+    <dialog id="ticketStatusDialog" class="review-tags-dialog">
+      <form method="dialog" class="review-tags-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>Ticket Status for Teams</h2>
+            <p>Every task grouped by top-level group, owner, and status - copy-paste-ready for a status update.</p>
+          </div>
+          <button id="closeTicketStatusBtn" type="button" aria-label="Close ticket status">X</button>
+        </div>
+        <div class="review-tags-toolbar">
+          <button id="refreshTicketStatusBtn" type="button" class="primary">Refresh</button>
+          <button id="copyTicketStatusBtn" type="button">Copy to clipboard</button>
+          <span id="ticketStatusStatus"></span>
+        </div>
+        <div id="ticketStatusContent" class="pr-status-content"></div>
+      </form>
+    </dialog>
+
     <template id="emptyStateTemplate">
       <div class="empty-state">
         <h2>No tasks yet</h2>
@@ -225,6 +244,7 @@
     <script src="js/task-model.js"></script>
     <script src="js/devops.js"></script>
     <script src="js/pr-review.js"></script>
+    <script src="js/ticket-status.js"></script>
     <script src="js/table.js"></script>
     <script src="js/gantt.js"></script>
     <script src="js/export.js"></script>

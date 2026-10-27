@@ -1764,6 +1764,69 @@ body.resizing-board {
   text-decoration: underline;
 }
 
+.ticket-status-group {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.ticket-status-group summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  background: #f6f8fa;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.ticket-status-owner {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.ticket-status-owner-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.ticket-status-status {
+  margin: 0 0 6px 10px;
+}
+
+.ticket-status-status:last-child {
+  margin-bottom: 0;
+}
+
+.ticket-status-status-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 2px;
+}
+
+.ticket-status-status ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ticket-status-status li {
+  padding: 2px 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.ticket-status-html a {
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 @media (max-width: 1180px) {
   body {
     min-width: 760px;
