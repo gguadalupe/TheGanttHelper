@@ -37,6 +37,17 @@ function normalizeState(raw) {
       dueDate: isIsoDate(task.dueDate) ? task.dueDate : "",
       closedDate: isIsoDate(task.closedDate) ? task.closedDate : "",
       status: normalizeTaskStatus(task.status),
+      isBlocked: Boolean(task.isBlocked),
+      blockedReason: typeof task.blockedReason === "string" ? task.blockedReason : "",
+      blockedByRefs: Array.isArray(task.blockedByRefs)
+        ? task.blockedByRefs
+            .filter((ref) => ref && ref.id != null)
+            .map((ref) => ({
+              id: String(ref.id),
+              title: typeof ref.title === "string" ? ref.title : `Work item ${ref.id}`,
+              url: typeof ref.url === "string" ? ref.url : ""
+            }))
+        : [],
       notes: typeof task.notes === "string" ? task.notes : "",
       source: typeof task.source === "string" ? task.source : "",
       externalId: task.externalId ?? "",
@@ -587,6 +598,18 @@ function analyzeTasks() {
         taskId: task.id,
         type: "Due",
         message: `${task.name || "Untitled task"} has a past due date and is not done.`
+      });
+    }
+
+    if (task.isBlocked) {
+      const blockers = (task.blockedByRefs || []).map((ref) => `#${ref.id} ${ref.title}`).join(", ");
+      const details = [task.blockedReason, blockers ? `Blocked by ${blockers}` : ""].filter(Boolean).join(" - ");
+      warnings.push({
+        taskId: task.id,
+        type: "Blocked",
+        message: details
+          ? `${task.name || "Untitled task"} is blocked: ${details}.`
+          : `${task.name || "Untitled task"} is marked blocked in Azure DevOps.`
       });
     }
   });

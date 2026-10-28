@@ -131,7 +131,9 @@ function buildTicketStatusEntry(task, liveInfo) {
     taskId: task.taskId,
     name: task.name || "Untitled task",
     url: task.externalUrl || "",
-    isBlocked: isLocallyBlockedStatus(task.status) || Boolean(liveInfo?.isBlockedByTag),
+    isBlocked: Boolean(task.isBlocked) || isLocallyBlockedStatus(task.status) || Boolean(liveInfo?.isBlockedByTag),
+    blockedReason: task.blockedReason || "",
+    blockedByRefs: task.blockedByRefs || [],
     activePrs: liveInfo?.activePrs || []
   };
 }
@@ -174,6 +176,11 @@ function buildTicketStatusText(groups) {
           const blockedTag = ticket.isBlocked ? " [BLOCKED]" : "";
           lines.push(`      • #${ticket.taskId} ${ticket.name}${blockedTag}`);
           if (ticket.url) lines.push(`        ${ticket.url}`);
+          if (ticket.isBlocked) {
+            const blockers = ticket.blockedByRefs.map((ref) => `#${ref.id} ${ref.title}`).join(", ");
+            const parts = [ticket.blockedReason, blockers ? `Blocked by ${blockers}` : ""].filter(Boolean);
+            if (parts.length) lines.push(`        Blocked: ${parts.join(" - ")}`);
+          }
           ticket.activePrs.forEach((pr) => {
             lines.push(`        PR: ${pr.title}${pr.url ? ` (${pr.url})` : ""}`);
           });
@@ -267,6 +274,24 @@ function renderTicketStatusItem(ticket) {
     row.append(pill);
   }
   item.append(row);
+
+  if (ticket.isBlocked && (ticket.blockedReason || ticket.blockedByRefs.length)) {
+    const blocked = document.createElement("div");
+    blocked.className = "ticket-status-blocked-detail";
+    const parts = [];
+    if (ticket.blockedReason) parts.push(ticket.blockedReason);
+    blocked.append(document.createTextNode(parts.join(" - ")));
+    if (ticket.blockedByRefs.length) {
+      if (parts.length) blocked.append(document.createTextNode(" - "));
+      blocked.append(document.createTextNode("Blocked by "));
+      ticket.blockedByRefs.forEach((ref, index) => {
+        if (index > 0) blocked.append(document.createTextNode(", "));
+        const label = `#${ref.id} ${ref.title}`;
+        blocked.append(ref.url ? ticketStatusLink(ref.url, label) : document.createTextNode(label));
+      });
+    }
+    item.append(blocked);
+  }
 
   if (ticket.activePrs.length) {
     const prs = document.createElement("div");

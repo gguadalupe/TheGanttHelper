@@ -1874,6 +1874,12 @@ body.resizing-board {
   font-size: 12px;
 }
 
+.ticket-status-blocked-detail {
+  margin: 2px 0 0 2px;
+  color: var(--red);
+  font-size: 12px;
+}
+
 .ticket-status-html a {
   color: var(--accent-dark);
   font-weight: 700;

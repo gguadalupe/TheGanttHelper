@@ -92,6 +92,7 @@ function renderDevopsInboxItem(item) {
     item.effortLevel ? `Effort ${item.effortLevel}` : "",
     item.dueDate ? `Due ${formatShortDate(item.dueDate)}` : "",
     item.closedDate ? `Closed ${formatShortDate(item.closedDate)}` : "",
+    item.isBlocked ? "Blocked" : "",
     item.state,
     item.assignedTo || "Unassigned",
     item.changedDate ? `Changed ${formatDateTime(item.changedDate)}` : ""
@@ -407,7 +408,9 @@ async function syncDevopsInbox() {
     const syncableWorkItems = workItems.filter(isSyncableDevopsWorkItem);
     const parentIds = getDevopsParentIds(syncableWorkItems);
     const parentTitles = parentIds.length ? await fetchDevopsParentTitles(config, token, parentIds) : new Map();
-    state.devops.inbox = mergeDevopsInbox(syncableWorkItems.map((item) => mapDevopsWorkItem(item, config, parentTitles)));
+    const blockedRelatedIds = getDevopsBlockedRelatedIds(syncableWorkItems);
+    const relatedTitles = blockedRelatedIds.length ? await fetchDevopsRelatedTitles(config, token, blockedRelatedIds) : new Map();
+    state.devops.inbox = mergeDevopsInbox(syncableWorkItems.map((item) => mapDevopsWorkItem(item, config, parentTitles, relatedTitles)));
     saveAndRender();
     renderDevopsPanel();
     setDevopsStatus(`Synced ${syncableWorkItems.length} task/bug item${syncableWorkItems.length === 1 ? "" : "s"}.`);
@@ -468,6 +471,15 @@ async function fetchDevopsParentTitles(config, token, parentIds) {
   ]));
 }
 
+async function fetchDevopsRelatedTitles(config, token, relatedIds) {
+  setDevopsStatus(`Fetching ${relatedIds.length} related item${relatedIds.length === 1 ? "" : "s"}...`);
+  const relatedWorkItems = await fetchDevopsWorkItems(config, token, relatedIds);
+  return new Map(relatedWorkItems.map((item) => [
+    String(item.id),
+    item.fields?.["System.Title"] || `Work item ${item.id}`
+  ]));
+}
+
 async function readDevopsResponse(response) {
   const text = await response.text();
   let data = {};
@@ -509,12 +521,13 @@ function isRetryableDevopsError(error) {
   return error.status === 408 || error.status === 429 || error.status >= 500;
 }
 
-function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
+function mapDevopsWorkItem(workItem, config, parentTitles = new Map(), relatedTitles = new Map()) {
   const fields = workItem.fields || {};
   const externalId = String(workItem.id);
   const title = fields["System.Title"] || `Work item ${externalId}`;
   const parentId = getDevopsParentId(workItem);
   const parentTitle = parentId ? parentTitles.get(parentId) || "" : "";
+  const isBlocked = getDevopsBlocked(fields);
   const mapped = {
     externalId,
     title,
@@ -530,6 +543,15 @@ function mapDevopsWorkItem(workItem, config, parentTitles = new Map()) {
     parentTitle,
     dueDate: getDevopsDueDate(fields),
     closedDate: getDevopsClosedDate(fields),
+    isBlocked,
+    blockedReason: getDevopsBlockedReason(fields),
+    blockedByRefs: isBlocked
+      ? getDevopsRelatedIds(workItem).map((id) => ({
+          id,
+          title: relatedTitles.get(id) || `Work item ${id}`,
+          url: `${getDevopsProjectUrl(config)}/_workitems/edit/${id}`
+        }))
+      : [],
     url: `${getDevopsProjectUrl(config)}/_workitems/edit/${externalId}`,
     suggestedGroup: buildDevopsSuggestedGroup(fields, config, parentId, parentTitle),
     suggestedType: getDevopsTaskType(fields["System.WorkItemType"], title)
@@ -604,6 +626,8 @@ function isDevopsTaskOutOfSync(task, item) {
   if (task.dueDate !== (item.dueDate || "")) return true;
   if (task.closedDate !== (item.closedDate || "")) return true;
   if (task.type !== getDevopsTaskType(item.workItemType, item.title)) return true;
+  if (Boolean(task.isBlocked) !== Boolean(item.isBlocked)) return true;
+  if ((task.blockedReason || "") !== (item.blockedReason || "")) return true;
   return false;
 }
 
@@ -632,6 +656,8 @@ function getDevopsTaskChanges(task, item) {
   addIfChanged("Due", task.dueDate, item.dueDate || "", (value) => (value ? formatShortDate(value) : "-"));
   addIfChanged("Closed", task.closedDate, item.closedDate || "", (value) => (value ? formatShortDate(value) : "-"));
   addIfChanged("Type", task.type, getDevopsTaskType(item.workItemType, item.title), getTypeLabel);
+  addIfChanged("Blocked", Boolean(task.isBlocked), Boolean(item.isBlocked), (value) => (value ? "Yes" : "No"));
+  addIfChanged("Blocked reason", task.blockedReason, item.blockedReason || "");
 
   return changes;
 }
@@ -655,6 +681,9 @@ function addDevopsItemToPlan(item, row) {
     parentId: item.parentId || "",
     dueDate: item.dueDate || "",
     closedDate: item.closedDate || "",
+    isBlocked: Boolean(item.isBlocked),
+    blockedReason: item.blockedReason || "",
+    blockedByRefs: Array.isArray(item.blockedByRefs) ? item.blockedByRefs : [],
     status: getDevopsStatus(item.state),
     notes: `Azure DevOps #${item.externalId}`,
     source: "azure-devops",
@@ -689,6 +718,9 @@ function applyDevopsUpdate(item) {
   task.effortLevel = item.effortLevel || "";
   task.dueDate = item.dueDate || "";
   task.closedDate = item.closedDate || "";
+  task.isBlocked = Boolean(item.isBlocked);
+  task.blockedReason = item.blockedReason || "";
+  task.blockedByRefs = Array.isArray(item.blockedByRefs) ? item.blockedByRefs : [];
   task.type = getDevopsTaskType(item.workItemType, item.title);
   if (isMilestoneType(task.type)) task.duration = 1;
   task.externalUrl = item.url;
@@ -754,6 +786,17 @@ function normalizeDevopsInboxItem(item) {
     parentTitle: typeof item.parentTitle === "string" ? item.parentTitle : "",
     dueDate: isIsoDate(item.dueDate) ? item.dueDate : "",
     closedDate: isIsoDate(item.closedDate) ? item.closedDate : "",
+    isBlocked: Boolean(item.isBlocked),
+    blockedReason: typeof item.blockedReason === "string" ? item.blockedReason : "",
+    blockedByRefs: Array.isArray(item.blockedByRefs)
+      ? item.blockedByRefs
+          .filter((ref) => ref && ref.id != null)
+          .map((ref) => ({
+            id: String(ref.id),
+            title: typeof ref.title === "string" ? ref.title : `Work item ${ref.id}`,
+            url: typeof ref.url === "string" ? ref.url : ""
+          }))
+      : [],
     url: typeof item.url === "string" ? item.url : "",
     signature: typeof item.signature === "string" ? item.signature : "",
     status: ["new", "changed", "imported", "ignored"].includes(item.status) ? item.status : "new",
@@ -867,6 +910,44 @@ function getDevopsEffortLevel(fields) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// "Blocked" and "Blocked Reason" are a locally-added pair of fields (a Yes/No flag plus
+// a free-text reason) - matched by the tail of the field reference name rather than a
+// hardcoded "Custom.Blocked" key, since the exact reference name depends on how this
+// org's admin created them (Custom.* vs a process-specific namespace).
+function findDevopsFieldByName(fields, name) {
+  const target = name.toLowerCase();
+  const key = Object.keys(fields).find((candidate) => candidate.split(".").pop().toLowerCase() === target);
+  return key ? fields[key] : undefined;
+}
+
+function getDevopsBlocked(fields) {
+  return String(findDevopsFieldByName(fields, "Blocked") ?? "").trim().toLowerCase() === "yes";
+}
+
+function getDevopsBlockedReason(fields) {
+  const value = findDevopsFieldByName(fields, "BlockedReason");
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// The ticket actually blocking this one isn't its own field - the user's process links
+// it through a plain "Related" work item link instead, so a blocked item's blocker(s)
+// are whatever it has a System.LinkTypes.Related relation to.
+function getDevopsRelatedIds(workItem) {
+  return (workItem.relations || [])
+    .filter((relation) => relation.rel === "System.LinkTypes.Related")
+    .map((relation) => relation.url?.split("/").filter(Boolean).at(-1))
+    .filter(Boolean);
+}
+
+function getDevopsBlockedRelatedIds(workItems) {
+  const ids = new Set();
+  workItems.forEach((workItem) => {
+    if (!getDevopsBlocked(workItem.fields || {})) return;
+    getDevopsRelatedIds(workItem).forEach((id) => ids.add(id));
+  });
+  return Array.from(ids);
+}
+
 function getDevopsSignature(item) {
   return JSON.stringify({
     title: item.title,
@@ -882,7 +963,9 @@ function getDevopsSignature(item) {
     parentTitle: item.parentTitle,
     dueDate: item.dueDate,
     closedDate: item.closedDate,
-    effortLevel: item.effortLevel
+    effortLevel: item.effortLevel,
+    isBlocked: item.isBlocked,
+    blockedReason: item.blockedReason
   });
 }
 
