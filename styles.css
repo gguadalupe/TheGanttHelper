@@ -1508,6 +1508,36 @@ body.resizing-board {
   margin-top: 2px !important;
 }
 
+.inbox-changes {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  background: #fff9ed;
+  border: 1px solid #f0cf83;
+  border-radius: 4px;
+}
+
+.inbox-changes li {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.inbox-change-from {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.inbox-change-to {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.inbox-changes-empty {
+  margin-top: 4px !important;
+  font-style: italic;
+}
+
 .inbox-controls {
   display: flex;
   align-items: end;
@@ -1816,9 +1846,32 @@ body.resizing-board {
 }
 
 .ticket-status-status li {
-  padding: 2px 0;
+  padding: 3px 0;
   font-size: 13px;
   color: var(--ink);
+}
+
+.ticket-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ticket-status-blocked-pill {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--red-soft);
+  color: var(--red);
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ticket-status-prs {
+  margin: 2px 0 0 2px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .ticket-status-html a {

@@ -653,14 +653,25 @@ function selectTicketStatusContent() {
   selection.addRange(range);
 }
 
-function loadTicketStatusSummary() {
+async function loadTicketStatusSummary() {
+  refreshTicketStatusBtn.disabled = true;
+  copyTicketStatusBtn.disabled = true;
   setTicketStatusStatus("Loading...");
   ticketStatusContent.textContent = "";
-  lastTicketStatusGroups = buildTicketStatusSummary();
-  ticketStatusContent.append(renderTicketStatusHtml(lastTicketStatusGroups));
-  const ticketCount = lastTicketStatusGroups.reduce((total, group) => total + group.ticketCount, 0);
-  setTicketStatusStatus(`${ticketCount} ticket${ticketCount === 1 ? "" : "s"} | Updated ${formatDateTime(new Date())}`);
-  copyTicketStatusBtn.disabled = !lastTicketStatusGroups.length;
+  lastTicketStatusGroups = [];
+  try {
+    const { groups, liveDataNote } = await fetchTicketStatusSummary((message) => setTicketStatusStatus(message));
+    lastTicketStatusGroups = groups;
+    ticketStatusContent.append(renderTicketStatusHtml(groups));
+    const ticketCount = groups.reduce((total, group) => total + group.ticketCount, 0);
+    const noteSuffix = liveDataNote ? ` - ${liveDataNote}` : "";
+    setTicketStatusStatus(`${ticketCount} ticket${ticketCount === 1 ? "" : "s"} | Updated ${formatDateTime(new Date())}${noteSuffix}`, Boolean(liveDataNote));
+    copyTicketStatusBtn.disabled = !groups.length;
+  } catch (error) {
+    setTicketStatusStatus(error.message || "Failed to load ticket status.", true);
+  } finally {
+    refreshTicketStatusBtn.disabled = false;
+  }
 }
 
 function setTicketStatusStatus(message, isError = false) {

@@ -103,6 +103,7 @@ function renderDevopsInboxItem(item) {
 
   main.append(title, meta);
   if (paths.textContent) main.append(paths);
+  if (item.status === "changed") main.append(renderDevopsItemChanges(item));
 
   const controls = document.createElement("div");
   controls.className = "inbox-controls";
@@ -133,6 +134,37 @@ function renderDevopsInboxItem(item) {
 
   row.append(main, controls);
   return row;
+}
+
+function renderDevopsItemChanges(item) {
+  const task = state.tasks.find((candidate) => candidate.source === "azure-devops" && String(candidate.externalId) === String(item.externalId));
+  if (!task) return document.createDocumentFragment();
+
+  const changes = getDevopsTaskChanges(task, item);
+  if (!changes.length) {
+    const note = document.createElement("p");
+    note.className = "inbox-changes-empty";
+    note.textContent = "DevOps metadata changed (tags, area path, or iteration) - nothing in the plan is affected.";
+    return note;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "inbox-changes";
+  changes.forEach((change) => {
+    const entry = document.createElement("li");
+    const label = document.createElement("strong");
+    label.textContent = `${change.label}: `;
+    const from = document.createElement("span");
+    from.className = "inbox-change-from";
+    from.textContent = change.from;
+    const arrow = document.createTextNode(" → ");
+    const to = document.createElement("span");
+    to.className = "inbox-change-to";
+    to.textContent = change.to;
+    entry.append(label, from, arrow, to);
+    list.append(entry);
+  });
+  return list;
 }
 
 function getDevopsProjectStartDate() {
@@ -573,6 +605,35 @@ function isDevopsTaskOutOfSync(task, item) {
   if (task.closedDate !== (item.closedDate || "")) return true;
   if (task.type !== getDevopsTaskType(item.workItemType, item.title)) return true;
   return false;
+}
+
+// Same seven fields isDevopsTaskOutOfSync checks, but keeping the before/after values
+// instead of bailing out at the first difference - this is what "Apply update" would
+// actually change, shown to a human before they click it. A signature-changed item can
+// still come back empty here (e.g. only tags or area path moved, which the plan doesn't
+// track) - the caller shows a fallback note for that case.
+function getDevopsTaskChanges(task, item) {
+  const changes = [];
+  // Compares the FORMATTED values, not the raw ones - task.effortLevel can be
+  // undefined while item.effortLevel is "", which are different raw values but both
+  // display as "-", and a diff entry that reads "Effort: - -> -" would just be
+  // confusing with nothing visible actually changing.
+  const addIfChanged = (label, from, to, format = (value) => value || "-") => {
+    const formattedFrom = format(from);
+    const formattedTo = format(to);
+    if (formattedFrom === formattedTo) return;
+    changes.push({ label, from: formattedFrom, to: formattedTo });
+  };
+
+  addIfChanged("Title", task.name, item.title);
+  addIfChanged("Status", task.status, getDevopsStatus(item.state), getStatusLabel);
+  addIfChanged("Owner", task.owner, item.assignedTo || "", (value) => value || "Unassigned");
+  addIfChanged("Effort", task.effortLevel, item.effortLevel || "");
+  addIfChanged("Due", task.dueDate, item.dueDate || "", (value) => (value ? formatShortDate(value) : "-"));
+  addIfChanged("Closed", task.closedDate, item.closedDate || "", (value) => (value ? formatShortDate(value) : "-"));
+  addIfChanged("Type", task.type, getDevopsTaskType(item.workItemType, item.title), getTypeLabel);
+
+  return changes;
 }
 
 function addDevopsItemToPlan(item, row) {
