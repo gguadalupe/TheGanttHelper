@@ -63,6 +63,25 @@ async function fetchReviewTagSummary(onStatus = () => {}) {
   );
   const prById = new Map(prEntries);
 
+  // Comment threads are only meaningful for PRs still open, and only cost a call once
+  // per unique PR (not per task/reviewer) - same sharing as the PR fetch above.
+  const activePrEntries = Array.from(prById.entries()).filter(([, pr]) => !pr.fetchError && pr.status === "active");
+  let commentSummaryById = new Map();
+  if (activePrEntries.length) {
+    onStatus(`Fetching comments for ${activePrEntries.length} pull request${activePrEntries.length === 1 ? "" : "s"}...`);
+    const commentEntries = await Promise.all(
+      activePrEntries.map(async ([pullRequestId, pr]) => {
+        try {
+          const threads = await fetchDevopsPullRequestThreads(config, token, pr);
+          return [pullRequestId, summarizeCommentThreads(threads)];
+        } catch (error) {
+          return [pullRequestId, { fetchError: error.message || "Failed to load comments." }];
+        }
+      })
+    );
+    commentSummaryById = new Map(commentEntries);
+  }
+
   const tasks = syncedTasks.map((task) => {
     const workItem = workItemById.get(String(task.externalId));
     const refs = prRefsByTaskId.get(task.id) || [];
@@ -70,7 +89,7 @@ async function fetchReviewTagSummary(onStatus = () => {}) {
     return buildReviewTaskEntry(task, workItem, prs, config);
   });
 
-  const { prSummaries, erroredCount } = buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config);
+  const { prSummaries, erroredCount } = buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSummaryById);
 
   return { tasks, prSummaries, prSummaryErrors: erroredCount };
 }
@@ -79,7 +98,7 @@ async function fetchReviewTagSummary(onStatus = () => {}) {
 // one work item) for the "share with the team" list: who's pending right now, same
 // ordering rules as the tag check, so this never asks someone to look before it's
 // actually their turn.
-function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config) {
+function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSummaryById = new Map()) {
   const summaryById = new Map();
   let erroredCount = 0;
 
@@ -119,10 +138,18 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config) {
   const prSummaries = Array.from(summaryById.values())
     .map((summary) => {
       const notVoted = summary.reviewers.filter((reviewer) => reviewer.vote === 0);
+      const pendingNow = notVoted.filter((reviewer) => reviewer.stageEligible).map((reviewer) => reviewer.name);
+      const pendingLater = notVoted.filter((reviewer) => !reviewer.stageEligible).map((reviewer) => reviewer.name);
+      const comments = commentSummaryById.get(summary.pullRequestId) || null;
+      // "Fully handled" needs both: every reviewer has voted AND nobody left an open
+      // comment thread unresolved - approvals alone don't mean the feedback was acted on.
+      const commentsClear = Boolean(comments) && !comments.fetchError && comments.activeCount === 0;
       return {
         ...summary,
-        pendingNow: notVoted.filter((reviewer) => reviewer.stageEligible).map((reviewer) => reviewer.name),
-        pendingLater: notVoted.filter((reviewer) => !reviewer.stageEligible).map((reviewer) => reviewer.name)
+        pendingNow,
+        pendingLater,
+        comments,
+        isFullyHandled: !pendingNow.length && !pendingLater.length && commentsClear
       };
     })
     .sort((a, b) => a.title.localeCompare(b.title));
@@ -144,7 +171,9 @@ function buildTeamsMessageText(prSummaries) {
     lines.push(`• ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
     if (pr.createdBy) lines.push(`  Created by: ${pr.createdBy}`);
     if (pr.url) lines.push(`  ${pr.url}`);
+    lines.push(`  ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
     lines.push(`  ${getPrPendingSummaryText(pr)}`);
+    lines.push(`  ${getPrCommentsSummaryText(pr.comments)}`);
     lines.push("");
   });
   lines.push("Please take a look when you can. Thanks!");
@@ -157,9 +186,9 @@ function buildTeamsMessageText(prSummaries) {
 // rules) must still show up here, or a PR that's actually still pending on e.g. the
 // senior group would get reported as fully approved.
 function getPrPendingSummaryText(pr) {
-  if (pr.pendingNow.length) return `Pending: ${pr.pendingNow.join(", ")}`;
-  if (pr.pendingLater.length) return `Pending (once earlier reviewers finish): ${pr.pendingLater.join(", ")}`;
-  return "Pending: none - fully approved";
+  if (pr.pendingNow.length) return `Reviewers pending: ${pr.pendingNow.join(", ")}`;
+  if (pr.pendingLater.length) return `Reviewers pending (once earlier reviewers finish): ${pr.pendingLater.join(", ")}`;
+  return "Reviewers: all approved";
 }
 
 // Built as real DOM (not an HTML string) so reviewer/task/PR text is always inserted
@@ -203,6 +232,7 @@ function renderPrStatusItem(pr) {
   title.className = "pr-status-title";
   title.append(document.createTextNode("PR: "));
   title.append(pr.url ? prStatusLink(pr.url, pr.title) : document.createTextNode(pr.title));
+  title.append(prStatusHandledPill(pr.isFullyHandled));
   item.append(title);
 
   if (pr.taskRefs.length) {
@@ -229,7 +259,19 @@ function renderPrStatusItem(pr) {
   pending.textContent = getPrPendingSummaryText(pr);
   item.append(pending);
 
+  const comments = document.createElement("div");
+  comments.className = ["pr-status-comments", pr.comments?.activeCount ? "has-active" : ""].filter(Boolean).join(" ");
+  comments.textContent = getPrCommentsSummaryText(pr.comments);
+  item.append(comments);
+
   return item;
+}
+
+function prStatusHandledPill(isFullyHandled) {
+  const pill = document.createElement("span");
+  pill.className = `pr-status-handled-pill ${isFullyHandled ? "done" : "attention"}`;
+  pill.textContent = isFullyHandled ? "Fully handled" : "Needs attention";
+  return pill;
 }
 
 function prStatusLink(href, label) {
@@ -418,6 +460,51 @@ function parseDevopsPullRequestArtifactUrl(url) {
 async function fetchDevopsPullRequest(config, token, pullRequestId) {
   const url = `${getDevopsOrgUrl(config.org)}/_apis/git/pullrequests/${pullRequestId}?api-version=7.1`;
   return fetchDevopsJson(url, { headers: devopsHeaders(token) });
+}
+
+// Comment threads live under the repository, not the org-scoped PR endpoint, so this
+// needs the repository id already present on the fetched PR object.
+async function fetchDevopsPullRequestThreads(config, token, pr) {
+  const projectName = pr.repository?.project?.name || config.project;
+  const repositoryId = pr.repository?.id;
+  if (!repositoryId) throw new Error("Pull request has no repository id.");
+  const url = `${getDevopsOrgUrl(config.org)}/${encodeURIComponent(projectName)}/_apis/git/repositories/${repositoryId}/pullRequests/${pr.pullRequestId}/threads?api-version=7.1`;
+  const data = await fetchDevopsJson(url, { headers: devopsHeaders(token) });
+  return data.value || [];
+}
+
+// Azure DevOps mixes real reviewer/tester discussion in with system-generated thread
+// entries (vote changes, reviewer list updates, etc.) - those system entries have no
+// "text" comment in them, so they're filtered out here rather than counted as feedback.
+// A thread's own "status" says whether what's left is resolved ("fixed"/"wontFix"/
+// "closed"/"byDesign") or still open ("active"/"pending"/"unknown" - anything else
+// defaults to open, since an unrecognized status should never silently read as done).
+function summarizeCommentThreads(threads) {
+  const resolvedStatuses = new Set(["fixed", "wontfix", "closed", "bydesign"]);
+  let activeCount = 0;
+  let resolvedCount = 0;
+
+  (threads || []).forEach((thread) => {
+    if (thread.isDeleted) return;
+    const realComments = (thread.comments || []).filter((comment) => (
+      !comment.isDeleted && (comment.commentType || "text").toLowerCase() === "text"
+    ));
+    if (!realComments.length) return;
+
+    const status = String(thread.status || "unknown").toLowerCase();
+    if (resolvedStatuses.has(status)) resolvedCount += 1;
+    else activeCount += 1;
+  });
+
+  return { activeCount, resolvedCount, totalCount: activeCount + resolvedCount };
+}
+
+function getPrCommentsSummaryText(comments) {
+  if (!comments) return "Comments: unknown";
+  if (comments.fetchError) return `Comments: couldn't load (${comments.fetchError})`;
+  if (!comments.totalCount) return "Comments: none";
+  if (comments.activeCount) return `Comments: ${comments.activeCount} active, ${comments.resolvedCount} resolved`;
+  return `Comments: all resolved (${comments.resolvedCount})`;
 }
 
 // pr._links.web.href is the correct, preferred source, but PR objects embedded inside
