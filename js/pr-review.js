@@ -126,7 +126,8 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSu
       summaryById.get(ref.pullRequestId).taskRefs.push({
         taskExternalId: task.externalId,
         taskName: task.name,
-        taskUrl: task.externalUrl
+        taskUrl: task.externalUrl,
+        taskGroup: splitGroupPath(task.group)[0] || "Ungrouped"
       });
     });
   });
@@ -146,6 +147,10 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSu
       const commentsClear = Boolean(comments) && !comments.fetchError && comments.activeCount === 0;
       return {
         ...summary,
+        // A PR linked to tasks in more than one top-level group is rare but possible -
+        // it groups under whichever task it was linked from first, same as any other
+        // "pick one" choice this summary already makes (title, createdBy, etc).
+        groupName: summary.taskRefs[0]?.taskGroup || "Ungrouped",
         pendingNow,
         pendingLater,
         comments,
@@ -157,6 +162,20 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSu
   return { prSummaries, erroredCount };
 }
 
+// Groups the flat PR list by top-level task group, mirroring js/ticket-status.js's own
+// "A / B / C" -> "A" grouping, so both shareable reports read the same way.
+function groupPrSummariesByGroup(prSummaries) {
+  const groups = new Map();
+  prSummaries.forEach((pr) => {
+    if (!groups.has(pr.groupName)) groups.set(pr.groupName, []);
+    groups.get(pr.groupName).push(pr);
+  });
+
+  return Array.from(groups.entries())
+    .map(([groupName, prs]) => ({ groupName, prs }))
+    .sort((a, b) => a.groupName.localeCompare(b.groupName));
+}
+
 // Plain text on purpose - Teams only live-renders markdown as you type it in the
 // compose box, not when you paste preformatted text, so markdown syntax here would
 // just show up as literal asterisks/dashes instead of formatting.
@@ -166,15 +185,18 @@ function buildTeamsMessageText(prSummaries) {
   }
 
   const lines = ["Pull requests open for review:", ""];
-  prSummaries.forEach((pr) => {
-    const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
-    lines.push(`• ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
-    if (pr.createdBy) lines.push(`  Created by: ${pr.createdBy}`);
-    if (pr.url) lines.push(`  ${pr.url}`);
-    lines.push(`  ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
-    lines.push(`  ${getPrPendingSummaryText(pr)}`);
-    lines.push(`  ${getPrCommentsSummaryText(pr.comments)}`);
-    lines.push("");
+  groupPrSummariesByGroup(prSummaries).forEach((group) => {
+    lines.push(`${group.groupName} (${group.prs.length})`);
+    group.prs.forEach((pr) => {
+      const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
+      lines.push(`  • ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
+      if (pr.createdBy) lines.push(`    Created by: ${pr.createdBy}`);
+      if (pr.url) lines.push(`    ${pr.url}`);
+      lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
+      lines.push(`    ${getPrPendingSummaryText(pr)}`);
+      lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
+      lines.push("");
+    });
   });
   lines.push("Please take a look when you can. Thanks!");
 
@@ -209,17 +231,33 @@ function renderPrStatusHtml(prSummaries) {
   intro.textContent = "Pull requests open for review:";
   container.append(intro);
 
-  const list = document.createElement("ul");
-  prSummaries.forEach((pr) => {
-    list.append(renderPrStatusItem(pr));
+  groupPrSummariesByGroup(prSummaries).forEach((group) => {
+    container.append(renderPrStatusGroup(group));
   });
-  container.append(list);
 
   const outro = document.createElement("p");
   outro.textContent = "Please take a look when you can. Thanks!";
   container.append(outro);
 
   return container;
+}
+
+function renderPrStatusGroup(group) {
+  const details = document.createElement("details");
+  details.className = "pr-status-group";
+  details.open = true;
+
+  const summaryEl = document.createElement("summary");
+  summaryEl.textContent = `${group.groupName} (${group.prs.length})`;
+  details.append(summaryEl);
+
+  const list = document.createElement("ul");
+  group.prs.forEach((pr) => {
+    list.append(renderPrStatusItem(pr));
+  });
+  details.append(list);
+
+  return details;
 }
 
 function renderPrStatusItem(pr) {

@@ -1826,6 +1826,28 @@ body.resizing-board {
   text-decoration: underline;
 }
 
+.pr-status-group {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.pr-status-group summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  background: #f6f8fa;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.pr-status-group ul {
+  padding: 8px 12px;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
 .ticket-status-group {
   border: 1px solid var(--line);
   border-radius: 6px;
