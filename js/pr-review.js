@@ -237,18 +237,24 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSu
   return { prSummaries, erroredCount };
 }
 
-// Groups the flat PR list by top-level task group, mirroring js/ticket-status.js's own
-// "A / B / C" -> "A" grouping, so both shareable reports read the same way.
-function groupPrSummariesByGroup(prSummaries) {
+// Groups the flat PR list, plus any PR-less tickets, by top-level task group -
+// mirroring js/ticket-status.js's own "A / B / C" -> "A" grouping, so both shareable
+// reports read the same way. PR-less tickets land in the same group as their ticket
+// (not a separate section), at the end of that group's list, since the group is what
+// the team actually organizes around.
+function buildPrStatusGroups(prSummaries, ticketsWithoutPr = []) {
   const groups = new Map();
-  prSummaries.forEach((pr) => {
-    if (!groups.has(pr.groupName)) groups.set(pr.groupName, []);
-    groups.get(pr.groupName).push(pr);
+  const ensureGroup = (groupName) => {
+    if (!groups.has(groupName)) groups.set(groupName, { groupName, prs: [], noPrRows: [] });
+    return groups.get(groupName);
+  };
+
+  prSummaries.forEach((pr) => ensureGroup(pr.groupName).prs.push(pr));
+  ticketsWithoutPr.forEach((row) => {
+    ensureGroup(splitGroupPath(row.group)[0] || "Ungrouped").noPrRows.push(row);
   });
 
-  return Array.from(groups.entries())
-    .map(([groupName, prs]) => ({ groupName, prs }))
-    .sort((a, b) => a.groupName.localeCompare(b.groupName));
+  return Array.from(groups.values()).sort((a, b) => a.groupName.localeCompare(b.groupName));
 }
 
 // Plain text on purpose - Teams only live-renders markdown as you type it in the
@@ -259,37 +265,27 @@ function buildTeamsMessageText(prSummaries, ticketsWithoutPr = []) {
     return "No active pull requests need review right now.";
   }
 
-  const lines = [];
-  if (prSummaries.length) {
-    lines.push("Pull requests open for review:", "");
-    groupPrSummariesByGroup(prSummaries).forEach((group) => {
-      lines.push(`${group.groupName} (${group.prs.length})`);
-      group.prs.forEach((pr) => {
-        const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
-        lines.push(`  • ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
-        if (pr.createdBy) lines.push(`    Created by: ${pr.createdBy}`);
-        if (pr.url) lines.push(`    ${pr.url}`);
-        lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
-        lines.push(`    ${getPrPendingSummaryText(pr)}`);
-        lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
-        const notesText = getPrTaskNotesText(pr);
-        if (notesText) lines.push(`    Notes: ${notesText}`);
-        lines.push("");
-      });
+  const lines = ["Pull requests open for review:", ""];
+  buildPrStatusGroups(prSummaries, ticketsWithoutPr).forEach((group) => {
+    lines.push(`${group.groupName} (${group.prs.length + group.noPrRows.length})`);
+    group.prs.forEach((pr) => {
+      const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
+      lines.push(`  • ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
+      if (pr.createdBy) lines.push(`    Created by: ${pr.createdBy}`);
+      if (pr.url) lines.push(`    ${pr.url}`);
+      lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
+      lines.push(`    ${getPrPendingSummaryText(pr)}`);
+      lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
+      const notesText = getPrTaskNotesText(pr);
+      if (notesText) lines.push(`    Notes: ${notesText}`);
+      lines.push("");
     });
-  } else {
-    lines.push("No active pull requests need review right now.", "");
-  }
-
-  if (ticketsWithoutPr.length) {
-    lines.push(`Tickets with no linked PR (${ticketsWithoutPr.length}):`);
-    ticketsWithoutPr.forEach((row) => {
-      lines.push(`  • #${row.taskExternalId} ${row.taskName} (${row.group || "Ungrouped"} | ${row.owner} | ${row.statusLabel})`);
+    group.noPrRows.forEach((row) => {
+      lines.push(`  • #${row.taskExternalId} ${row.taskName} - no linked PR (${row.owner} | ${row.statusLabel})`);
       if (row.taskUrl) lines.push(`    ${row.taskUrl}`);
+      lines.push("");
     });
-    lines.push("");
-  }
-
+  });
   lines.push("Please take a look when you can. Thanks!");
 
   return lines.join("\n");
@@ -329,23 +325,13 @@ function renderPrStatusHtml(prSummaries, ticketsWithoutPr = []) {
     return container;
   }
 
-  if (prSummaries.length) {
-    const intro = document.createElement("p");
-    intro.textContent = "Pull requests open for review:";
-    container.append(intro);
+  const intro = document.createElement("p");
+  intro.textContent = "Pull requests open for review:";
+  container.append(intro);
 
-    groupPrSummariesByGroup(prSummaries).forEach((group) => {
-      container.append(renderPrStatusGroup(group));
-    });
-  } else {
-    const noPrs = document.createElement("p");
-    noPrs.textContent = "No active pull requests need review right now.";
-    container.append(noPrs);
-  }
-
-  if (ticketsWithoutPr.length) {
-    container.append(renderPrStatusNoPrGroup(ticketsWithoutPr));
-  }
+  buildPrStatusGroups(prSummaries, ticketsWithoutPr).forEach((group) => {
+    container.append(renderPrStatusGroup(group));
+  });
 
   const outro = document.createElement("p");
   outro.textContent = "Please take a look when you can. Thanks!";
@@ -360,53 +346,51 @@ function renderPrStatusGroup(group) {
   details.open = true;
 
   const summaryEl = document.createElement("summary");
-  summaryEl.textContent = `${group.groupName} (${group.prs.length})`;
+  summaryEl.textContent = `${group.groupName} (${group.prs.length + group.noPrRows.length})`;
   details.append(summaryEl);
 
   const list = document.createElement("ul");
   group.prs.forEach((pr) => {
     list.append(renderPrStatusItem(pr));
   });
+  // PR-less tickets for this group go last, after every PR - they're not blocking a
+  // review the way the PRs above are, just a heads-up that nothing's been opened yet.
+  group.noPrRows.forEach((row) => {
+    list.append(renderPrStatusNoPrItem(row));
+  });
   details.append(list);
 
   return details;
 }
 
-// Tickets that are synced but have no PR linked at all - a different concern from the
-// "pendingNow"/"pendingLater" lists above (those are about PRs that exist but aren't
-// fully reviewed yet), surfaced separately so the team can also see what hasn't even
-// reached a PR.
-function renderPrStatusNoPrGroup(rows) {
-  const details = document.createElement("details");
-  details.className = "pr-status-group";
-  details.open = true;
-
-  const summaryEl = document.createElement("summary");
-  summaryEl.textContent = `Tickets with no linked PR (${rows.length})`;
-  details.append(summaryEl);
-
-  const list = document.createElement("ul");
-  rows.forEach((row) => list.append(renderPrStatusNoPrItem(row)));
-  details.append(list);
-
-  return details;
-}
-
+// A ticket with no PR linked at all - a different concern from the "pendingNow"/
+// "pendingLater" reviewer lists (those are about a PR that exists but isn't fully
+// reviewed yet). Rendered at the end of its own group's list (see renderPrStatusGroup),
+// not a separate section, so it reads alongside the rest of that group's work.
 function renderPrStatusNoPrItem(row) {
   const item = document.createElement("li");
+  item.className = "pr-status-no-pr-item";
 
   const title = document.createElement("div");
   title.className = "pr-status-title";
   const label = `#${row.taskExternalId} ${row.taskName}`;
   title.append(row.taskUrl ? prStatusLink(row.taskUrl, label) : document.createTextNode(label));
+  title.append(document.createTextNode(" "), prStatusNoPrPill());
   item.append(title);
 
   const meta = document.createElement("div");
   meta.className = "pr-status-tasks";
-  meta.textContent = `${row.group || "Ungrouped"} | ${row.owner} | ${row.statusLabel}`;
+  meta.textContent = `${row.owner} | ${row.statusLabel}`;
   item.append(meta);
 
   return item;
+}
+
+function prStatusNoPrPill() {
+  const pill = document.createElement("span");
+  pill.className = "pr-status-handled-pill attention";
+  pill.textContent = "No linked PR";
+  return pill;
 }
 
 function renderPrStatusItem(pr) {
