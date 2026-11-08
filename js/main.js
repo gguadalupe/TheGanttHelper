@@ -55,6 +55,7 @@ const copyPrStatusBtn = document.querySelector("#copyPrStatusBtn");
 const prStatusStatus = document.querySelector("#prStatusStatus");
 const prStatusContent = document.querySelector("#prStatusContent");
 let lastPrSummaries = [];
+let lastPrTicketsWithoutPr = [];
 const openTicketStatusBtn = document.querySelector("#openTicketStatusBtn");
 const ticketStatusDialog = document.querySelector("#ticketStatusDialog");
 const closeTicketStatusBtn = document.querySelector("#closeTicketStatusBtn");
@@ -568,9 +569,9 @@ refreshPrStatusBtn.addEventListener("click", () => {
 });
 
 copyPrStatusBtn.addEventListener("click", async () => {
-  if (!lastPrSummaries.length) return;
+  if (!lastPrSummaries.length && !lastPrTicketsWithoutPr.length) return;
   const html = prStatusContent.innerHTML;
-  const text = buildTeamsMessageText(lastPrSummaries);
+  const text = buildTeamsMessageText(lastPrSummaries, lastPrTicketsWithoutPr);
   try {
     if (typeof ClipboardItem === "undefined") throw new Error("ClipboardItem unsupported");
     await navigator.clipboard.write([
@@ -603,13 +604,15 @@ async function loadPrStatusSummary() {
   setPrStatusStatus("Loading...");
   prStatusContent.textContent = "";
   lastPrSummaries = [];
+  lastPrTicketsWithoutPr = [];
   try {
     const summary = await fetchReviewTagSummary((message) => setPrStatusStatus(message));
     lastPrSummaries = summary.prSummaries;
-    prStatusContent.append(renderPrStatusHtml(summary.prSummaries));
+    lastPrTicketsWithoutPr = (summary.ticketPrRows || []).filter((row) => !row.pr);
+    prStatusContent.append(renderPrStatusHtml(summary.prSummaries, lastPrTicketsWithoutPr));
     const errorNote = summary.prSummaryErrors ? ` (${summary.prSummaryErrors} pull request${summary.prSummaryErrors === 1 ? "" : "s"} failed to load)` : "";
     setPrStatusStatus(`Updated ${formatDateTime(new Date())}${errorNote}`, Boolean(summary.prSummaryErrors));
-    copyPrStatusBtn.disabled = !summary.prSummaries.length;
+    copyPrStatusBtn.disabled = !summary.prSummaries.length && !lastPrTicketsWithoutPr.length;
   } catch (error) {
     setPrStatusStatus(error.message || "Failed to load PR status.", true);
   } finally {

@@ -254,27 +254,42 @@ function groupPrSummariesByGroup(prSummaries) {
 // Plain text on purpose - Teams only live-renders markdown as you type it in the
 // compose box, not when you paste preformatted text, so markdown syntax here would
 // just show up as literal asterisks/dashes instead of formatting.
-function buildTeamsMessageText(prSummaries) {
-  if (!prSummaries.length) {
+function buildTeamsMessageText(prSummaries, ticketsWithoutPr = []) {
+  if (!prSummaries.length && !ticketsWithoutPr.length) {
     return "No active pull requests need review right now.";
   }
 
-  const lines = ["Pull requests open for review:", ""];
-  groupPrSummariesByGroup(prSummaries).forEach((group) => {
-    lines.push(`${group.groupName} (${group.prs.length})`);
-    group.prs.forEach((pr) => {
-      const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
-      lines.push(`  • ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
-      if (pr.createdBy) lines.push(`    Created by: ${pr.createdBy}`);
-      if (pr.url) lines.push(`    ${pr.url}`);
-      lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
-      lines.push(`    ${getPrPendingSummaryText(pr)}`);
-      lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
-      const notesText = getPrTaskNotesText(pr);
-      if (notesText) lines.push(`    Notes: ${notesText}`);
-      lines.push("");
+  const lines = [];
+  if (prSummaries.length) {
+    lines.push("Pull requests open for review:", "");
+    groupPrSummariesByGroup(prSummaries).forEach((group) => {
+      lines.push(`${group.groupName} (${group.prs.length})`);
+      group.prs.forEach((pr) => {
+        const taskLabel = pr.taskRefs.map((ref) => `#${ref.taskExternalId} ${ref.taskName}`).join(", ");
+        lines.push(`  • ${pr.title}${taskLabel ? ` (${taskLabel})` : ""}`);
+        if (pr.createdBy) lines.push(`    Created by: ${pr.createdBy}`);
+        if (pr.url) lines.push(`    ${pr.url}`);
+        lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
+        lines.push(`    ${getPrPendingSummaryText(pr)}`);
+        lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
+        const notesText = getPrTaskNotesText(pr);
+        if (notesText) lines.push(`    Notes: ${notesText}`);
+        lines.push("");
+      });
     });
-  });
+  } else {
+    lines.push("No active pull requests need review right now.", "");
+  }
+
+  if (ticketsWithoutPr.length) {
+    lines.push(`Tickets with no linked PR (${ticketsWithoutPr.length}):`);
+    ticketsWithoutPr.forEach((row) => {
+      lines.push(`  • #${row.taskExternalId} ${row.taskName} (${row.group || "Ungrouped"} | ${row.owner} | ${row.statusLabel})`);
+      if (row.taskUrl) lines.push(`    ${row.taskUrl}`);
+    });
+    lines.push("");
+  }
+
   lines.push("Please take a look when you can. Thanks!");
 
   return lines.join("\n");
@@ -303,24 +318,34 @@ function getPrTaskNotesText(pr) {
 // Built as real DOM (not an HTML string) so reviewer/task/PR text is always inserted
 // via textContent - safe even if a title or display name happens to contain markup.
 // This same element's innerHTML is what gets copied for the rich-text (Teams) paste.
-function renderPrStatusHtml(prSummaries) {
+function renderPrStatusHtml(prSummaries, ticketsWithoutPr = []) {
   const container = document.createElement("div");
   container.className = "pr-status-html";
 
-  if (!prSummaries.length) {
+  if (!prSummaries.length && !ticketsWithoutPr.length) {
     const empty = document.createElement("p");
     empty.textContent = "No active pull requests need review right now.";
     container.append(empty);
     return container;
   }
 
-  const intro = document.createElement("p");
-  intro.textContent = "Pull requests open for review:";
-  container.append(intro);
+  if (prSummaries.length) {
+    const intro = document.createElement("p");
+    intro.textContent = "Pull requests open for review:";
+    container.append(intro);
 
-  groupPrSummariesByGroup(prSummaries).forEach((group) => {
-    container.append(renderPrStatusGroup(group));
-  });
+    groupPrSummariesByGroup(prSummaries).forEach((group) => {
+      container.append(renderPrStatusGroup(group));
+    });
+  } else {
+    const noPrs = document.createElement("p");
+    noPrs.textContent = "No active pull requests need review right now.";
+    container.append(noPrs);
+  }
+
+  if (ticketsWithoutPr.length) {
+    container.append(renderPrStatusNoPrGroup(ticketsWithoutPr));
+  }
 
   const outro = document.createElement("p");
   outro.textContent = "Please take a look when you can. Thanks!";
@@ -345,6 +370,43 @@ function renderPrStatusGroup(group) {
   details.append(list);
 
   return details;
+}
+
+// Tickets that are synced but have no PR linked at all - a different concern from the
+// "pendingNow"/"pendingLater" lists above (those are about PRs that exist but aren't
+// fully reviewed yet), surfaced separately so the team can also see what hasn't even
+// reached a PR.
+function renderPrStatusNoPrGroup(rows) {
+  const details = document.createElement("details");
+  details.className = "pr-status-group";
+  details.open = true;
+
+  const summaryEl = document.createElement("summary");
+  summaryEl.textContent = `Tickets with no linked PR (${rows.length})`;
+  details.append(summaryEl);
+
+  const list = document.createElement("ul");
+  rows.forEach((row) => list.append(renderPrStatusNoPrItem(row)));
+  details.append(list);
+
+  return details;
+}
+
+function renderPrStatusNoPrItem(row) {
+  const item = document.createElement("li");
+
+  const title = document.createElement("div");
+  title.className = "pr-status-title";
+  const label = `#${row.taskExternalId} ${row.taskName}`;
+  title.append(row.taskUrl ? prStatusLink(row.taskUrl, label) : document.createTextNode(label));
+  item.append(title);
+
+  const meta = document.createElement("div");
+  meta.className = "pr-status-tasks";
+  meta.textContent = `${row.group || "Ungrouped"} | ${row.owner} | ${row.statusLabel}`;
+  item.append(meta);
+
+  return item;
 }
 
 function renderPrStatusItem(pr) {
