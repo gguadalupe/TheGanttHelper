@@ -24,6 +24,7 @@
         <button id="openReviewTagsBtn" type="button">Review tags</button>
         <button id="openPrStatusBtn" type="button">Share PR status</button>
         <button id="openTicketStatusBtn" type="button">Share ticket status</button>
+        <button id="openWorkListBtn" type="button">Work list</button>
         <button id="toggleChecksBtn" type="button" aria-expanded="false">Show checks</button>
         <button id="exportJsonBtn" type="button">Export JSON</button>
         <button id="exportCsvBtn" type="button">Export CSV</button>
@@ -231,6 +232,24 @@
       </form>
     </dialog>
 
+    <dialog id="workListDialog" class="work-list-dialog">
+      <form method="dialog" class="review-tags-panel">
+        <div class="dialog-heading">
+          <div>
+            <h2>Ticket / PR Work List</h2>
+            <p>Every synced ticket with its linked pull request(s), one flat list - sort any column (including PR #, so a PR spanning several tickets/groups stays easy to follow), then copy the list for the team.</p>
+          </div>
+          <button id="closeWorkListBtn" type="button" aria-label="Close work list">X</button>
+        </div>
+        <div class="review-tags-toolbar">
+          <button id="refreshWorkListBtn" type="button" class="primary">Refresh</button>
+          <button id="copyWorkListBtn" type="button">Copy to clipboard</button>
+          <span id="workListStatus"></span>
+        </div>
+        <div id="workListContent" class="work-list-content"></div>
+      </form>
+    </dialog>
+
     <template id="emptyStateTemplate">
       <div class="empty-state">
         <h2>No tasks yet</h2>
@@ -245,6 +264,7 @@
     <script src="js/devops.js"></script>
     <script src="js/pr-review.js"></script>
     <script src="js/ticket-status.js"></script>
+    <script src="js/work-list.js"></script>
     <script src="js/table.js"></script>
     <script src="js/gantt.js"></script>
     <script src="js/export.js"></script>

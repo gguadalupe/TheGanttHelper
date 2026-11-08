@@ -63,6 +63,15 @@ const copyTicketStatusBtn = document.querySelector("#copyTicketStatusBtn");
 const ticketStatusStatus = document.querySelector("#ticketStatusStatus");
 const ticketStatusContent = document.querySelector("#ticketStatusContent");
 let lastTicketStatusGroups = [];
+const openWorkListBtn = document.querySelector("#openWorkListBtn");
+const workListDialog = document.querySelector("#workListDialog");
+const closeWorkListBtn = document.querySelector("#closeWorkListBtn");
+const refreshWorkListBtn = document.querySelector("#refreshWorkListBtn");
+const copyWorkListBtn = document.querySelector("#copyWorkListBtn");
+const workListStatus = document.querySelector("#workListStatus");
+const workListContent = document.querySelector("#workListContent");
+let lastWorkListRows = [];
+let workListSort = { key: "group", dir: "asc" };
 let checksVisible = localStorage.getItem(CHECKS_VISIBLE_KEY) === "true";
 let currentZoom = loadGanttZoom();
 let draggedTaskId = "";
@@ -677,6 +686,80 @@ async function loadTicketStatusSummary() {
 function setTicketStatusStatus(message, isError = false) {
   ticketStatusStatus.textContent = message;
   ticketStatusStatus.classList.toggle("error", isError);
+}
+
+openWorkListBtn.addEventListener("click", () => {
+  workListDialog.showModal();
+  loadWorkListSummary();
+});
+
+closeWorkListBtn.addEventListener("click", () => {
+  workListDialog.close();
+});
+
+refreshWorkListBtn.addEventListener("click", () => {
+  loadWorkListSummary();
+});
+
+// Clicking a column header toggles asc/desc on that column, or switches to it (asc)
+// if a different column was active - same convention as any sortable table header.
+workListContent.addEventListener("click", (event) => {
+  const button = event.target.closest(".work-list-sort-btn");
+  if (!button) return;
+  const key = button.dataset.sortKey;
+  workListSort = key === workListSort.key
+    ? { key, dir: workListSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
+  renderWorkListTable();
+});
+
+copyWorkListBtn.addEventListener("click", async () => {
+  if (!lastWorkListRows.length) return;
+  const text = buildWorkListText(lastWorkListRows, workListSort);
+  try {
+    await navigator.clipboard.writeText(text);
+    setWorkListStatus("Copied - paste into Teams.");
+  } catch {
+    selectWorkListContent();
+    setWorkListStatus("Couldn't copy automatically - content is selected, press Ctrl/Cmd+C.", true);
+  }
+});
+
+function selectWorkListContent() {
+  const range = document.createRange();
+  range.selectNodeContents(workListContent);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function renderWorkListTable() {
+  workListContent.textContent = "";
+  workListContent.append(buildWorkListTable(lastWorkListRows, workListSort));
+}
+
+async function loadWorkListSummary() {
+  refreshWorkListBtn.disabled = true;
+  copyWorkListBtn.disabled = true;
+  setWorkListStatus("Loading...");
+  lastWorkListRows = [];
+  renderWorkListTable();
+  try {
+    const summary = await fetchReviewTagSummary((message) => setWorkListStatus(message));
+    lastWorkListRows = summary.ticketPrRows || [];
+    renderWorkListTable();
+    setWorkListStatus(`${lastWorkListRows.length} row${lastWorkListRows.length === 1 ? "" : "s"} | Updated ${formatDateTime(new Date())}`);
+    copyWorkListBtn.disabled = !lastWorkListRows.length;
+  } catch (error) {
+    setWorkListStatus(error.message || "Failed to load the work list.", true);
+  } finally {
+    refreshWorkListBtn.disabled = false;
+  }
+}
+
+function setWorkListStatus(message, isError = false) {
+  workListStatus.textContent = message;
+  workListStatus.classList.toggle("error", isError);
 }
 
 devopsTokenInput.addEventListener("change", () => {

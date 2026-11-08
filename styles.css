@@ -1801,7 +1801,6 @@ body.resizing-board {
 
 .pr-status-handled-pill {
   display: inline-flex;
-  margin-left: 6px;
   border-radius: 999px;
   padding: 2px 7px;
   font-size: 10px;
@@ -1818,6 +1817,13 @@ body.resizing-board {
 .pr-status-handled-pill.attention {
   background: var(--red-soft);
   color: var(--red);
+}
+
+.pr-status-task-notes {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
 .pr-status-html a {
@@ -1938,6 +1944,84 @@ body.resizing-board {
   color: var(--accent-dark);
   font-weight: 700;
   text-decoration: underline;
+}
+
+.work-list-dialog {
+  width: min(1400px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 20px 70px rgba(31, 41, 51, 0.22);
+}
+
+.work-list-dialog::backdrop {
+  background: rgba(31, 41, 51, 0.34);
+}
+
+.work-list-content {
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+  padding: 10px 14px 16px;
+}
+
+.work-list-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.work-list-table th,
+.work-list-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.work-list-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f6f8fa;
+  z-index: 1;
+}
+
+.work-list-sort-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 800;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.work-list-sort-btn.active {
+  color: var(--accent-dark);
+}
+
+.work-list-sort-arrow {
+  font-size: 10px;
+}
+
+.work-list-row:hover {
+  background: #fafbfc;
+}
+
+.work-list-muted {
+  color: var(--muted);
+}
+
+.work-list-error {
+  color: var(--red);
+}
+
+.work-list-empty {
+  padding: 16px 2px;
+  color: var(--muted);
+  text-align: center;
 }
 
 @media (max-width: 1180px) {

@@ -46,7 +46,8 @@ async function fetchReviewTagSummary(onStatus = () => {}) {
     return {
       tasks: syncedTasks.map((task) => buildReviewTaskEntry(task, workItemById.get(String(task.externalId)), [], config)),
       prSummaries: [],
-      prSummaryErrors: 0
+      prSummaryErrors: 0,
+      ticketPrRows: buildTicketPrRows(syncedTasks, prRefsByTaskId, new Map(), config)
     };
   }
 
@@ -90,8 +91,81 @@ async function fetchReviewTagSummary(onStatus = () => {}) {
   });
 
   const { prSummaries, erroredCount } = buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSummaryById);
+  const ticketPrRows = buildTicketPrRows(syncedTasks, prRefsByTaskId, prById, config, commentSummaryById);
 
-  return { tasks, prSummaries, prSummaryErrors: erroredCount };
+  return { tasks, prSummaries, prSummaryErrors: erroredCount, ticketPrRows };
+}
+
+// One row per (ticket, PR) pair - a ticket with no linked PR still gets a row (pr: null)
+// so the work-list view can show every synced ticket, not just the ones with review
+// activity. A ticket with several PRs gets one row per PR so sorting by PR number
+// treats each PR as its own line, same as the main task table treats each task.
+function buildTicketPrRows(syncedTasks, prRefsByTaskId, prById, config, commentSummaryById = new Map()) {
+  const rows = [];
+
+  syncedTasks.forEach((task) => {
+    const refs = prRefsByTaskId.get(task.id) || [];
+    const prs = refs.map((ref) => prById.get(ref.pullRequestId)).filter(Boolean);
+
+    if (!prs.length) {
+      rows.push(buildTicketPrRow(task, null, null, config));
+      return;
+    }
+
+    prs.forEach((pr) => {
+      const comments = pr.status === "active" ? commentSummaryById.get(String(pr.pullRequestId)) || null : null;
+      rows.push(buildTicketPrRow(task, pr, comments, config));
+    });
+  });
+
+  return rows;
+}
+
+function buildTicketPrRow(task, pr, comments, config) {
+  const base = {
+    taskId: task.id,
+    taskExternalId: task.externalId,
+    taskName: task.name || "Untitled task",
+    taskUrl: task.externalUrl || "",
+    group: task.group || "Ungrouped",
+    owner: task.owner || "Unassigned",
+    status: task.status,
+    statusLabel: getStatusLabel(task.status)
+  };
+
+  if (!pr) return { ...base, pr: null };
+
+  if (pr.fetchError) {
+    return { ...base, pr: { error: pr.fetchError } };
+  }
+
+  // Review-staging facts only mean something while a PR is still open for review -
+  // a completed/abandoned PR has no "pending" reviewers worth reporting.
+  let pendingNow = [];
+  let pendingLater = [];
+  let isFullyHandled = null;
+  if (pr.status === "active") {
+    const notVoted = getPullRequestReviewerFacts(pr, config).filter((reviewer) => reviewer.vote === 0);
+    pendingNow = notVoted.filter((reviewer) => reviewer.stageEligible).map((reviewer) => reviewer.name);
+    pendingLater = notVoted.filter((reviewer) => !reviewer.stageEligible).map((reviewer) => reviewer.name);
+    const commentsClear = Boolean(comments) && !comments.fetchError && comments.activeCount === 0;
+    isFullyHandled = !pendingNow.length && !pendingLater.length && commentsClear;
+  }
+
+  return {
+    ...base,
+    pr: {
+      id: Number(pr.pullRequestId) || pr.pullRequestId,
+      title: pr.title || `Pull request #${pr.pullRequestId}`,
+      url: getDevopsPullRequestUrl(pr, config),
+      status: pr.status,
+      createdBy: pr.createdBy?.displayName || "",
+      pendingNow,
+      pendingLater,
+      comments,
+      isFullyHandled
+    }
+  };
 }
 
 // One row per unique active PR (not per task - the same PR can be linked from more than
@@ -127,7 +201,8 @@ function buildPrSummaries(syncedTasks, prRefsByTaskId, prById, config, commentSu
         taskExternalId: task.externalId,
         taskName: task.name,
         taskUrl: task.externalUrl,
-        taskGroup: splitGroupPath(task.group)[0] || "Ungrouped"
+        taskGroup: splitGroupPath(task.group)[0] || "Ungrouped",
+        taskNote: task.notes || ""
       });
     });
   });
@@ -195,6 +270,8 @@ function buildTeamsMessageText(prSummaries) {
       lines.push(`    ${pr.isFullyHandled ? "Status: fully handled" : "Status: needs attention"}`);
       lines.push(`    ${getPrPendingSummaryText(pr)}`);
       lines.push(`    ${getPrCommentsSummaryText(pr.comments)}`);
+      const notesText = getPrTaskNotesText(pr);
+      if (notesText) lines.push(`    Notes: ${notesText}`);
       lines.push("");
     });
   });
@@ -211,6 +288,16 @@ function getPrPendingSummaryText(pr) {
   if (pr.pendingNow.length) return `Reviewers pending: ${pr.pendingNow.join(", ")}`;
   if (pr.pendingLater.length) return `Reviewers pending (once earlier reviewers finish): ${pr.pendingLater.join(", ")}`;
   return "Reviewers: all approved";
+}
+
+// Surfaces the task's own Notes field (the same one typed into the main task table) -
+// not a separate note kept just for this report. A PR linked to more than one task
+// labels each note with its ticket number, since they could say different things.
+function getPrTaskNotesText(pr) {
+  const notedRefs = pr.taskRefs.filter((ref) => ref.taskNote.trim());
+  if (!notedRefs.length) return "";
+  if (notedRefs.length === 1 && pr.taskRefs.length === 1) return notedRefs[0].taskNote;
+  return notedRefs.map((ref) => `#${ref.taskExternalId}: ${ref.taskNote}`).join(" | ");
 }
 
 // Built as real DOM (not an HTML string) so reviewer/task/PR text is always inserted
@@ -270,7 +357,11 @@ function renderPrStatusItem(pr) {
   title.className = "pr-status-title";
   title.append(document.createTextNode("PR: "));
   title.append(pr.url ? prStatusLink(pr.url, pr.title) : document.createTextNode(pr.title));
-  title.append(prStatusHandledPill(pr.isFullyHandled));
+  // A plain space text node, not CSS margin, before the pill - margin doesn't survive
+  // the plain-text clipboard fallback or a paste into something that strips styles, and
+  // the title + pill text would otherwise run together with no gap at all ("Fix Needs
+  // attention" collapsing into "FixNeeds attention").
+  title.append(document.createTextNode(" "), prStatusHandledPill(pr.isFullyHandled));
   item.append(title);
 
   if (pr.taskRefs.length) {
@@ -301,6 +392,14 @@ function renderPrStatusItem(pr) {
   comments.className = ["pr-status-comments", pr.comments?.activeCount ? "has-active" : ""].filter(Boolean).join(" ");
   comments.textContent = getPrCommentsSummaryText(pr.comments);
   item.append(comments);
+
+  const notesText = getPrTaskNotesText(pr);
+  if (notesText) {
+    const notes = document.createElement("div");
+    notes.className = "pr-status-task-notes";
+    notes.textContent = `Notes: ${notesText}`;
+    item.append(notes);
+  }
 
   return item;
 }
