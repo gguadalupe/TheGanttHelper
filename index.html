@@ -20,7 +20,10 @@
           <button type="button" data-zoom="month" aria-pressed="false">Month</button>
         </div>
         <button id="openColumnsBtn" type="button">Columns</button>
-        <button id="openDevopsOptionsBtn" type="button">Sync options</button>
+        <div class="button-group" role="group" aria-label="Azure DevOps sync">
+          <button id="syncNowBtn" type="button" title="Sync inbox, then apply every new or changed item">Sync</button>
+          <button id="openDevopsOptionsBtn" class="icon-button" type="button" title="Sync options" aria-label="Sync options">⚙</button>
+        </div>
         <button id="openReviewTagsBtn" type="button">Review tags</button>
         <button id="openPrStatusBtn" type="button">Share PR status</button>
         <button id="openTicketStatusBtn" type="button">Share ticket status</button>

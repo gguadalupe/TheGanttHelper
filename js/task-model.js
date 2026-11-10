@@ -53,7 +53,8 @@ function normalizeState(raw) {
       externalId: task.externalId ?? "",
       externalUrl: typeof task.externalUrl === "string" ? task.externalUrl : "",
       externalSignature: typeof task.externalSignature === "string" ? task.externalSignature : "",
-      externalChangedDate: typeof task.externalChangedDate === "string" ? task.externalChangedDate : ""
+      externalChangedDate: typeof task.externalChangedDate === "string" ? task.externalChangedDate : "",
+      hasDevopsUpdate: Boolean(task.hasDevopsUpdate)
     };
   });
 

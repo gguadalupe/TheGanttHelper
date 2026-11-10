@@ -169,6 +169,32 @@ button.danger {
   font-weight: 700;
 }
 
+/* Same joined look as .zoom-toggle, for a non-toggle pair of related action
+   buttons (e.g. "Sync" + the sync-options cog) rather than mutually-exclusive modes. */
+.button-group {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.button-group button {
+  min-height: 32px;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  font-size: 14px;
+}
+
+.button-group button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.button-group button.icon-button {
+  padding: 0 10px;
+  font-size: 16px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(720px, 1fr) 360px;
@@ -794,6 +820,17 @@ body.resizing-board {
 .task-external-link:focus-visible {
   background: var(--accent-soft);
   color: var(--accent-dark);
+}
+
+/* Marks a task whose Azure DevOps item changed on the last sync and hasn't been
+   opened (via the external-link button) since - cleared on click, see main.js. */
+.task-update-badge {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background: var(--amber);
 }
 
 .task-table .delete-btn {

@@ -9,6 +9,7 @@ const timelinePane = document.querySelector(".timeline-pane");
 const openColumnsBtn = document.querySelector("#openColumnsBtn");
 const ganttZoomToggle = document.querySelector("#ganttZoomToggle");
 const openDevopsOptionsBtn = document.querySelector("#openDevopsOptionsBtn");
+const syncNowBtn = document.querySelector("#syncNowBtn");
 const toggleChecksBtn = document.querySelector("#toggleChecksBtn");
 const toggleAllGroupsBtn = document.querySelector("#toggleAllGroupsBtn");
 const clearFiltersBtn = document.querySelector("#clearFiltersBtn");
@@ -796,6 +797,19 @@ syncAllDevopsBtn.addEventListener("click", () => {
   setDevopsStatus(synced ? `Synced ${synced} item${synced === 1 ? "" : "s"}.` : "No new or changed items to sync.");
 });
 
+// One-click combo of "Sync inbox" + "Sync all" for the topbar button - the dialog's
+// own buttons stay separate for anyone who wants to review the inbox first.
+syncNowBtn.addEventListener("click", async () => {
+  syncNowBtn.disabled = true;
+  try {
+    await syncDevopsInbox();
+    const synced = syncDevopsInboxItems("all");
+    setDevopsStatus(synced ? `Synced ${synced} item${synced === 1 ? "" : "s"}.` : "No new or changed items to sync.");
+  } finally {
+    syncNowBtn.disabled = false;
+  }
+});
+
 clearDevopsInboxBtn.addEventListener("click", () => {
   if (!confirm("Clear the DevOps inbox? Imported plan tasks will stay in place.")) return;
   state.devops.inbox = [];
@@ -967,6 +981,16 @@ taskTableBody.addEventListener("click", (event) => {
   const groupName = event.target.closest("[data-toggle-group]")?.dataset.toggleGroup;
   if (groupName) {
     toggleTaskGroup(groupName);
+    return;
+  }
+
+  const externalLinkId = event.target.closest(".task-external-link")?.dataset.taskId;
+  if (externalLinkId) {
+    const linkedTask = state.tasks.find((item) => item.id === externalLinkId);
+    if (linkedTask && linkedTask.hasDevopsUpdate) {
+      linkedTask.hasDevopsUpdate = false;
+      saveAndRender(RENDER_SCOPES_WITHOUT_GANTT);
+    }
     return;
   }
 

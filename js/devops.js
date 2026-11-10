@@ -726,6 +726,10 @@ function applyDevopsUpdate(item) {
   task.externalUrl = item.url;
   task.externalSignature = item.signature;
   task.externalChangedDate = item.changedDate;
+  // Flags the ticket in the task table until its external-link button is clicked -
+  // covers any change the signature caught (title/state/tags/area/etc), not just the
+  // fields the plan displays, since "something changed in DevOps" is the point.
+  task.hasDevopsUpdate = true;
   item.status = "imported";
   item.localTaskId = task.id;
 }

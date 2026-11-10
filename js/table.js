@@ -594,7 +594,10 @@ function taskNameCell(task, warnings = []) {
   if (warnings.length) wrapper.append(taskWarningButton(task, warnings));
   wrapper.append(input);
   const externalLink = taskExternalLink(task);
-  if (externalLink) wrapper.append(externalLink);
+  if (externalLink) {
+    if (task.hasDevopsUpdate) wrapper.append(taskUpdateBadge());
+    wrapper.append(externalLink);
+  }
   cell.append(wrapper);
   return cell;
 }
@@ -609,7 +612,16 @@ function taskExternalLink(task) {
   link.textContent = "↗";
   link.title = `Open Azure DevOps #${task.externalId || task.taskId}`;
   link.setAttribute("aria-label", link.title);
+  link.dataset.taskId = task.id;
   return link;
+}
+
+function taskUpdateBadge() {
+  const badge = document.createElement("span");
+  badge.className = "task-update-badge";
+  badge.title = "Updated in Azure DevOps since last synced - opening the ticket clears this";
+  badge.setAttribute("aria-label", badge.title);
+  return badge;
 }
 
 function taskWarningButton(task, warnings) {
