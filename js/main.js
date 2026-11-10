@@ -798,15 +798,28 @@ syncAllDevopsBtn.addEventListener("click", () => {
 });
 
 // One-click combo of "Sync inbox" + "Sync all" for the topbar button - the dialog's
-// own buttons stay separate for anyone who wants to review the inbox first.
+// own buttons stay separate for anyone who wants to review the inbox first. "syncing"
+// drives a pulsing border while the fetch is in flight; "sync-error" marks a failed
+// attempt with a red border and sticks around until the next click is tried, since a
+// message in the (usually closed) DevOps dialog alone is too easy to miss.
 syncNowBtn.addEventListener("click", async () => {
   syncNowBtn.disabled = true;
+  syncNowBtn.classList.remove("sync-error");
+  syncNowBtn.classList.add("syncing");
   try {
     await syncDevopsInbox();
+    if (devopsStatus.classList.contains("error")) {
+      syncNowBtn.classList.add("sync-error");
+      return;
+    }
     const synced = syncDevopsInboxItems("all");
     setDevopsStatus(synced ? `Synced ${synced} item${synced === 1 ? "" : "s"}.` : "No new or changed items to sync.");
+  } catch (error) {
+    setDevopsStatus(error.message || "Sync failed.", true);
+    syncNowBtn.classList.add("sync-error");
   } finally {
     syncNowBtn.disabled = false;
+    syncNowBtn.classList.remove("syncing");
   }
 });
 

@@ -195,6 +195,22 @@ button.danger {
   font-size: 16px;
 }
 
+@keyframes sync-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 2px rgba(25, 118, 162, 0.5); }
+  50% { box-shadow: inset 0 0 0 2px rgba(25, 118, 162, 0.1); }
+}
+
+.button-group button.syncing {
+  animation: sync-pulse 1s ease-in-out infinite;
+  color: var(--accent-dark);
+  cursor: default;
+}
+
+.button-group button.sync-error {
+  box-shadow: inset 0 0 0 2px var(--red);
+  color: var(--red);
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(720px, 1fr) 360px;
