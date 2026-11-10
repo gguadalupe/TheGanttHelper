@@ -807,6 +807,10 @@ syncNowBtn.addEventListener("click", async () => {
   syncNowBtn.classList.remove("sync-error");
   syncNowBtn.classList.add("syncing");
   try {
+    // The org/project/token inputs are only ever populated by renderDevopsPanel(),
+    // normally triggered by opening the dialog - without this, syncDevopsInbox() reads
+    // them blank on a page where the dialog was never opened and fails immediately.
+    renderDevopsPanel();
     await syncDevopsInbox();
     if (devopsStatus.classList.contains("error")) {
       syncNowBtn.classList.add("sync-error");
